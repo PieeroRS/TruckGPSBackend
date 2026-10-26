@@ -94,6 +94,9 @@ def sms_configured() -> bool:
 
 
 def _post(url: str, data: bytes, headers: dict[str, str]) -> None:
+    # Resend está detrás de Cloudflare, que rechaza (error 1010) el User-Agent
+    # por defecto de urllib; se envía uno propio.
+    headers = {"User-Agent": "TruckGPS-Alerts/1.0", "Accept": "application/json", **headers}
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
