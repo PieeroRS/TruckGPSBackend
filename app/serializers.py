@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.models import AiAlert, Incident, NavRoute, User, Vehicle
+from app.models import AiAlert, FuelLog, Incident, NavRoute, User, Vehicle
 from app.schemas import iso, relative_time
 
 
@@ -34,6 +34,8 @@ def vehicle_out(v: Vehicle) -> dict:
         "velocidad": v.velocidad or 0,
         "km": v.kilometraje,
         "proxMant": v.prox_mantenimiento or "",
+        "rendimientoKmGal": v.rendimiento_km_gal,
+        "tanqueGal": v.tanque_gal,
     }
 
 
@@ -120,3 +122,20 @@ def new_incident_id(db: Session) -> str:
         if db.get(Incident, candidate) is None:
             return candidate
     return f"INC-{year}-{random.randint(1000, 9999)}"
+
+
+def fuel_log_out(row: FuelLog) -> dict:
+    return {
+        "id": row.id,
+        "vehicleId": row.vehicle_id,
+        "placa": row.vehicle.placa if row.vehicle else "—",
+        "navRouteId": row.nav_route_id,
+        "fecha": iso(row.fecha),
+        "galones": round(row.galones, 2),
+        "monto": round(row.monto, 2),
+        "precioGalon": round(row.monto / row.galones, 2) if row.galones else None,
+        "odometroKm": row.odometro_km,
+        "tanqueLleno": row.tanque_lleno,
+        "grifo": row.grifo,
+        "notas": row.notas,
+    }

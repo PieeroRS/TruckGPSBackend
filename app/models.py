@@ -44,6 +44,9 @@ class Vehicle(Base):
     lat: Mapped[float | None] = mapped_column(Float)
     lng: Mapped[float | None] = mapped_column(Float)
     velocidad: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Rendimiento de referencia (km por galón) y capacidad del tanque, para el módulo de consumo.
+    rendimiento_km_gal: Mapped[float | None] = mapped_column(Float)
+    tanque_gal: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -168,3 +171,24 @@ class NavRoute(Base):
 
     vehicle: Mapped[Vehicle | None] = relationship()
     driver: Mapped[User | None] = relationship(foreign_keys=[driver_id])
+
+
+class FuelLog(Base):
+    """Carga de combustible (vale de grifo) de un vehículo."""
+
+    __tablename__ = "fuel_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    vehicle_id: Mapped[str] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False)
+    nav_route_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("nav_routes.id", ondelete="SET NULL"))
+    registrado_por: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"))
+    fecha: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    galones: Mapped[float] = mapped_column(Float, nullable=False)
+    monto: Mapped[float] = mapped_column(Float, nullable=False)
+    odometro_km: Mapped[int | None] = mapped_column(Integer)
+    tanque_lleno: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    grifo: Mapped[str | None] = mapped_column(String(200))
+    notas: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    vehicle: Mapped[Vehicle] = relationship()

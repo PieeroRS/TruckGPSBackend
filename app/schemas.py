@@ -114,3 +114,20 @@ class NavRouteCreateIn(BaseModel):
 class NavRouteStatusIn(BaseModel):
     status: str
     progress_pct: int | None = None
+
+
+class FuelLogIn(BaseModel):
+    vehicle_id: str
+    galones: float = Field(gt=0, le=2000)
+    monto: float = Field(ge=0, le=200000)
+    fecha: datetime | None = None
+    odometro_km: int | None = Field(default=None, ge=0)
+    tanque_lleno: bool = True
+    grifo: str | None = None
+    nav_route_id: str | None = None
+    notas: str | None = None
+
+
+class VehicleEfficiencyIn(BaseModel):
+    rendimiento_km_gal: float | None = Field(default=None, gt=0, le=100)
+    tanque_gal: float | None = Field(default=None, gt=0, le=2000)

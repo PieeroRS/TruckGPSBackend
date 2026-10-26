@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import hash_password
-from app.models import AiAlert, Incident, IncidentEvent, Trip, User, Vehicle, utcnow
+from app.models import AiAlert, FuelLog, Incident, IncidentEvent, Trip, User, Vehicle, utcnow
 
 DEFAULT_PASSWORD = "password"
 
@@ -53,6 +53,8 @@ def seed_if_empty(db: Session) -> None:
             lat=-12.0464,
             lng=-77.0428,
             velocidad=78,
+            rendimiento_km_gal=9.5,
+            tanque_gal=110,
         ),
         Vehicle(
             placa="DGR-456",
@@ -64,6 +66,8 @@ def seed_if_empty(db: Session) -> None:
             lat=-16.409,
             lng=-71.537,
             velocidad=0,
+            rendimiento_km_gal=10.0,
+            tanque_gal=100,
         ),
         Vehicle(
             placa="PER-789",
@@ -75,6 +79,8 @@ def seed_if_empty(db: Session) -> None:
             lat=-11.9404,
             lng=-76.2356,
             velocidad=12,
+            rendimiento_km_gal=8.5,
+            tanque_gal=120,
         ),
     ]
     db.add_all(vehicles)
@@ -85,6 +91,33 @@ def seed_if_empty(db: Session) -> None:
     per = next(v for v in vehicles if v.placa == "PER-789")
 
     db.add(Trip(vehicle_id=abc.id, ruta="Lima → Trujillo", progress_pct=68, status="active"))
+
+    # Cargas de combustible de ejemplo (últimos días). DGR-456 rinde por debajo
+    # de su referencia para que el módulo de consumo muestre una alerta.
+    hoy = utcnow()
+    demo_cargas = [
+        (abc, 9, 141600, 60.0, True, "Grifo Primax Panamericana Norte"),
+        (abc, 6, 142170, 59.0, True, "Grifo Repsol Huacho"),
+        (abc, 2, 142740, 61.0, True, "Grifo Petroperú Chimbote"),
+        (dgr, 8, 97200, 50.0, True, "Grifo Repsol Arequipa"),
+        (dgr, 5, 97830, 79.0, True, "Grifo Primax Juliaca"),
+        (dgr, 1, 98400, 72.0, True, "Grifo Petroperú Cusco"),
+        (per, 7, 214300, 70.0, True, "Grifo Primax Ate"),
+        (per, 3, 214890, 70.5, True, "Grifo Repsol La Oroya"),
+    ]
+    for veh, dias, odo, gal, lleno, grifo in demo_cargas:
+        db.add(
+            FuelLog(
+                vehicle_id=veh.id,
+                fecha=hoy - timedelta(days=dias),
+                galones=gal,
+                monto=round(gal * 16.5, 2),
+                odometro_km=odo,
+                tanque_lleno=lleno,
+                grifo=grifo,
+                notas="Dato de ejemplo",
+            )
+        )
 
     db.add_all(
         [
