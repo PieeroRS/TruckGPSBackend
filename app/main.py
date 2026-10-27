@@ -8,6 +8,7 @@ from app.config import UPLOADS_DIR, settings
 from app.database import Base, SessionLocal, engine
 from app.migrate import ensure_columns
 from app.routers import alerts, auth, dashboard, fuel, incidents, profiles, routes, vehicles, zones
+from app.official_zones import load_official_zones
 from app.seed import seed_if_empty
 
 
@@ -18,6 +19,7 @@ async def lifespan(_app: FastAPI):
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        load_official_zones(db)
     except Exception:
         db.rollback()
         raise

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from: str = ""  # número de Twilio que envía el SMS
     zone_alert_cooldown_min: int = 30
+    # Las zonas oficiales (Lima/Callao) siempre se registran y se muestran al
+    # conductor; el correo/SMS al supervisor solo se envía si esto es true.
+    official_zone_alerts: bool = False
 
 
 settings = Settings()

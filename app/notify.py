@@ -175,3 +175,10 @@ def send_alert(db: Session, alert: Alert) -> list[NotificationLog]:
 
     db.flush()
     return logs
+
+
+def record_alert(db: Session, alert: Alert) -> list[NotificationLog]:
+    """Registra el evento en el historial de la app sin enviar correo ni SMS."""
+    row = _log(db, alert, "app", [], "registrado", None)
+    db.flush()
+    return [row]
