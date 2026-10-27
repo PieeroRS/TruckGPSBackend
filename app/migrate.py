@@ -12,6 +12,13 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
         "rendimiento_km_gal": "FLOAT",
         "tanque_gal": "FLOAT",
     },
+    "risk_zones": {
+        "origen": "VARCHAR(20) DEFAULT 'usuario' NOT NULL",
+        "codigo": "VARCHAR(60)",
+        "nivel": "VARCHAR(20)",
+        "fuentes": "JSON",
+        "periodo": "VARCHAR(60)",
+    },
 }
 
 

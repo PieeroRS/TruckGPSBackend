@@ -207,6 +207,13 @@ class RiskZone(Base):
     radio_m: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notas: Mapped[str | None] = mapped_column(Text)
+    # Zonas "oficiales" vienen de fuentes públicas (Mininter, Sinadef, prensa) y
+    # se cargan desde app/data/zonas_lima_callao.json; las "usuario" las crea el supervisor.
+    origen: Mapped[str] = mapped_column(String(20), nullable=False, default="usuario")
+    codigo: Mapped[str | None] = mapped_column(String(60), unique=True)
+    nivel: Mapped[str | None] = mapped_column(String(20))  # alto | muy_alto
+    fuentes: Mapped[list | None] = mapped_column(JSON)  # [{"medio", "fecha", "url"}]
+    periodo: Mapped[str | None] = mapped_column(String(60))
     created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

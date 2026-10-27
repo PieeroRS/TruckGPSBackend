@@ -11,7 +11,7 @@ from app.auth import get_current_user, require_staff
 from app.config import settings
 from app.database import get_db
 from app.models import NotificationLog, RiskZone, User, Vehicle, ZoneState, utcnow
-from app.notify import Alert, split_list, email_configured, send_alert, sms_configured
+from app.notify import Alert, email_configured, record_alert, send_alert, sms_configured, split_list
 from app.routers.fuel import haversine_km
 from app.schemas import RiskZoneIn, iso
 
@@ -19,6 +19,8 @@ router = APIRouter(tags=["zones"])
 
 ZONE_TYPES = {
     "robo": "Zona de robos",
+    "homicidio": "Homicidios / sicariato",
+    "extorsion": "Extorsión a transportistas",
     "sin_senal": "Sin señal",
     "peligro_vial": "Peligro vial",
     "riesgo": "Zona de riesgo",
@@ -39,6 +41,11 @@ def zone_out(z: RiskZone) -> dict:
         "radioM": z.radio_m,
         "activa": z.activa,
         "notas": z.notas,
+        "origen": z.origen or "usuario",
+        "codigo": z.codigo,
+        "nivel": z.nivel,
+        "fuentes": z.fuentes or [],
+        "periodo": z.periodo,
         "createdAt": iso(z.created_at),
     }
 
@@ -81,7 +88,10 @@ def check_zones(db: Session, vehicle: Vehicle, lat: float, lng: float) -> list[R
             last = _aware(state.last_alert_at)
             if not state.inside and (last is None or now - last >= cooldown):
                 conductor = vehicle.driver.full_name if vehicle.driver else "Sin conductor asignado"
-                send_alert(
+                oficial = (z.origen or "usuario") == "oficial"
+                deliver = send_alert if (not oficial or settings.official_zone_alerts) else record_alert
+                fuente = (z.fuentes or [{}])[0] if oficial else {}
+                deliver(
                     db,
                     Alert(
                         tipo="zona",
@@ -92,6 +102,7 @@ def check_zones(db: Session, vehicle: Vehicle, lat: float, lng: float) -> list[R
                             f"A {int(dist_m)} m del centro de la zona (radio {z.radio_m} m)",
                             f"Hora: {now.astimezone(timezone(timedelta(hours=-5))).strftime('%d/%m/%Y %H:%M')} (Lima)",
                             *([f"Nota: {z.notas}"] if z.notas else []),
+                            *([f"Fuente: {fuente.get('medio')} ({fuente.get('fecha')})"] if fuente.get("medio") else []),
                         ],
                         lat=lat,
                         lng=lng,
@@ -142,6 +153,12 @@ def update_zone(zone_id: str, body: RiskZoneIn, _user: User = Depends(require_st
     z = db.get(RiskZone, zone_id)
     if z is None:
         raise HTTPException(status_code=404, detail="Zona no encontrada")
+    if z.origen == "oficial":
+        # Las zonas oficiales vienen de fuentes públicas: solo se pueden activar o desactivar.
+        z.activa = body.activa
+        db.add(z)
+        db.flush()
+        return zone_out(z)
     _apply(z, body)
     db.add(z)
     db.flush()
@@ -153,6 +170,8 @@ def delete_zone(zone_id: str, _user: User = Depends(require_staff), db: Session 
     z = db.get(RiskZone, zone_id)
     if z is None:
         raise HTTPException(status_code=404, detail="Zona no encontrada")
+    if z.origen == "oficial":
+        raise HTTPException(status_code=400, detail="Las zonas oficiales no se eliminan; desactívala si no quieres usarla")
     for st in db.scalars(select(ZoneState).where(ZoneState.zone_id == zone_id)).all():
         db.delete(st)
     db.delete(z)
@@ -193,6 +212,7 @@ def notifications_status(_user: User = Depends(require_staff)):
             ],
         },
         "cooldownMin": settings.zone_alert_cooldown_min,
+        "zonasOficialesAvisan": settings.official_zone_alerts,
     }
 
 

@@ -1,0 +1,321 @@
+{
+  "version": "2026-10-26",
+  "descripcion": "Puntos críticos de Lima Metropolitana y Callao con hechos documentados entre 2024 y 2026 (robos, asaltos a transportistas, extorsión y homicidios). Coordenadas: OpenStreetMap (© colaboradores de OpenStreetMap, ODbL). Cada zona cita su fuente periodística u oficial.",
+  "zonas": [
+    {
+      "codigo": "callao-antepuerto-atalaya",
+      "nombre": "Antepuerto del Callao (Av. Atalaya)",
+      "tipo": "robo",
+      "nivel": "muy_alto",
+      "lat": -12.04463,
+      "lng": -77.1265,
+      "radio_m": 900,
+      "periodo": "2025",
+      "notas": "Camiones detenidos horas en las colas de acceso al puerto: asaltos, robo de celulares y cobro de cupos a choferes. No te detengas fuera de la cola ni abras la cabina.",
+      "fuentes": [
+        {"medio": "América TV", "fecha": "2025-04-09", "url": "https://www.americatv.com.pe/noticias/actualidad/callao-camioneros-enfrentan-largas-colas-y-extorsion-diaria-n505019"},
+        {"medio": "Convoca", "fecha": "2025-12-10", "url": "https://convoca.pe/agenda-propia/rutas-de-asalto-el-transporte-de-carga-revela-crisis-de-seguridad-y-anuncia-paro"}
+      ]
+    },
+    {
+      "codigo": "callao-bertello-canta-callao",
+      "nombre": "Av. Bertello con Av. Canta Callao",
+      "tipo": "robo",
+      "nivel": "alto",
+      "lat": -11.99680,
+      "lng": -77.11273,
+      "radio_m": 500,
+      "periodo": "2025",
+      "notas": "Delincuentes armados secuestraron a un chofer y se llevaron su camión con carga minera valorizada en unos US$ 300 mil.",
+      "fuentes": [
+        {"medio": "La República", "fecha": "2025-05-07", "url": "https://larepublica.pe/sociedad/2025/05/07/imagenes-captan-secuestro-armado-de-chofer-en-callao-robaron-camion-con-carga-minera-de-us-300000-581014"}
+      ]
+    },
+    {
+      "codigo": "callao-gambetta-ciudad-pescador",
+      "nombre": "Av. Néstor Gambetta – Ciudad del Pescador",
+      "tipo": "homicidio",
+      "nivel": "muy_alto",
+      "lat": -11.98221,
+      "lng": -77.12499,
+      "radio_m": 800,
+      "periodo": "2025",
+      "notas": "Chofer de transporte asesinado en Av. Gambetta con Alameda (oct. 2025). Vía principal del corredor de carga del puerto.",
+      "fuentes": [
+        {"medio": "La República", "fecha": "2025-10-26", "url": "https://larepublica.pe/sociedad/2025/10/26/callao-registra-en-2025-la-cifra-mas-alta-de-homicidios-de-los-ultimos-anos-la-extorsion-sigue-entre-los-delitos-mas-denunciados-ntpe-2508610"},
+        {"medio": "Infobae", "fecha": "2025-10-26", "url": "https://www.infobae.com/peru/2025/10/26/callao-rompe-record-historico-de-homicidios-en-2025-bellavista-lidera-los-reportes-de-violencia/"}
+      ]
+    },
+    {
+      "codigo": "callao-guisse-carrillo",
+      "nombre": "Av. Guisse con Av. Carrillo de Albornoz (Callao Cercado)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.06704,
+      "lng": -77.14097,
+      "radio_m": 400,
+      "periodo": "2025",
+      "notas": "Ataque a balazos contra una mujer que iba a trabajar (oct. 2025). Callao Cercado: 45 homicidios a octubre de 2025.",
+      "fuentes": [
+        {"medio": "La República (Sinadef)", "fecha": "2025-10-26", "url": "https://larepublica.pe/sociedad/2025/10/26/callao-registra-en-2025-la-cifra-mas-alta-de-homicidios-de-los-ultimos-anos-la-extorsion-sigue-entre-los-delitos-mas-denunciados-ntpe-2508610"}
+      ]
+    },
+    {
+      "codigo": "callao-av-grau",
+      "nombre": "Av. Miguel Grau (Callao)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.06340,
+      "lng": -77.14198,
+      "radio_m": 600,
+      "periodo": "2026",
+      "notas": "Chofer de combi asesinado a balazos desde un auto (may. 2026).",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-05-21", "url": "https://www.infobae.com/peru/2026/05/21/cuatro-choferes-asesinados-en-una-semana-transportistas-viven-bajo-amenaza-de-sicarios-y-extorsionadores-en-lima-y-callao/"}
+      ]
+    },
+    {
+      "codigo": "laperla-macarena",
+      "nombre": "Urb. La Macarena (La Perla)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.07458,
+      "lng": -77.11051,
+      "radio_m": 500,
+      "periodo": "2026",
+      "notas": "Ataque armado con 52 disparos contra una camioneta (feb. 2026). La Perla tiene la segunda tasa de homicidios más alta de Lima y Callao (ene–ago 2025).",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-02-12", "url": "https://www.infobae.com/peru/2026/02/12/escalada-criminal-en-el-callao-18-homicidios-solo-en-lo-que-va-del-2026-y-un-nuevo-ataque-armado-con-52-disparos/"}
+      ]
+    },
+    {
+      "codigo": "lima-argentina-ecuador",
+      "nombre": "Av. Argentina altura Jr. Ecuador (Cercado de Lima)",
+      "tipo": "extorsion",
+      "nivel": "muy_alto",
+      "lat": -12.04465,
+      "lng": -77.05616,
+      "radio_m": 500,
+      "periodo": "2026",
+      "notas": "Chofer de la ruta Lima–Callao asesinado por extorsionadores (may. 2026); al menos cinco ataques contra esa ruta en 2026.",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-05-14", "url": "https://www.infobae.com/peru/2026/05/14/transportistas-paralizan-ruta-lima-callao-tras-asesinato-de-chofer-y-ataque-a-pasajera-en-la-av-argentina/"}
+      ]
+    },
+    {
+      "codigo": "lima-mesa-redonda",
+      "nombre": "Mesa Redonda – Mercado Central (Cercado de Lima)",
+      "tipo": "robo",
+      "nivel": "muy_alto",
+      "lat": -12.05300,
+      "lng": -77.02720,
+      "radio_m": 600,
+      "periodo": "2025",
+      "notas": "Cercado de Lima fue el distrito con más robos (1,266) y extorsiones (543) de Lima entre enero y abril de 2025; los mercados de la zona concentran comercio ilegal.",
+      "fuentes": [
+        {"medio": "El Comercio (Observatorio Mininter)", "fecha": "2025-05-22", "url": "https://elcomercio.pe/lima/cercado-de-lima-lidera-las-denuncias-por-extorsion-y-homicidio-en-el-ano-cifras-ya-superan-el-registro-del-2024-cercado-de-lima-extorsion-robo-hurto-homicidio-crimen-organizado-noticia/"}
+      ]
+    },
+    {
+      "codigo": "lima-las-malvinas",
+      "nombre": "Las Malvinas (Cercado de Lima)",
+      "tipo": "robo",
+      "nivel": "alto",
+      "lat": -12.04582,
+      "lng": -77.04448,
+      "radio_m": 500,
+      "periodo": "2025",
+      "notas": "Zona comercial señalada por especialistas como foco de mercados ilegales en el distrito con más robos de Lima (ene–abr 2025).",
+      "fuentes": [
+        {"medio": "El Comercio (Observatorio Mininter)", "fecha": "2025-05-22", "url": "https://elcomercio.pe/lima/cercado-de-lima-lidera-las-denuncias-por-extorsion-y-homicidio-en-el-ano-cifras-ya-superan-el-registro-del-2024-cercado-de-lima-extorsion-robo-hurto-homicidio-crimen-organizado-noticia/"}
+      ]
+    },
+    {
+      "codigo": "lavictoria-mercado-frutas",
+      "nombre": "Mercado Mayorista de Frutas (La Victoria)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.06859,
+      "lng": -76.99849,
+      "radio_m": 500,
+      "periodo": "2025–2026",
+      "notas": "Sicarios asesinaron a un parqueador frente al mercado (sep. 2026); robos a puestos de mercados de La Victoria (dic. 2025). Zona de carga y descarga.",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-09-15", "url": "https://www.infobae.com/peru/2026/09/15/crimen-en-la-victoria-asesinan-a-parqueador-frente-al-mercado-mayorista-de-frutas/"},
+        {"medio": "Infobae", "fecha": "2025-12-04", "url": "https://www.infobae.com/peru/2025/12/04/delincuentes-ingresan-a-mercado-de-la-victoria-y-roban-en-ocho-puestos-perdidas-superan-los-60-mil-soles/"}
+      ]
+    },
+    {
+      "codigo": "rimac-evitamiento-acho",
+      "nombre": "Vía de Evitamiento – paradero Puente Acho (Rímac)",
+      "tipo": "extorsion",
+      "nivel": "alto",
+      "lat": -12.04143,
+      "lng": -77.02326,
+      "radio_m": 450,
+      "periodo": "2026",
+      "notas": "Disparos contra la cabina de un bus detenido en el paradero (oct. 2026); la empresa denunció amenazas extorsivas.",
+      "fuentes": [
+        {"medio": "La República", "fecha": "2026-10-22", "url": "https://larepublica.pe/sociedad/2026/10/22/chofer-de-bus-de-nuevo-peru-salva-de-morir-tras-ataque-a-balazos-en-via-de-evitamiento-822668"}
+      ]
+    },
+    {
+      "codigo": "elagustino-evitamiento-palmeras",
+      "nombre": "Vía de Evitamiento – Las Palmeras (El Agustino)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.03124,
+      "lng": -77.00626,
+      "radio_m": 700,
+      "periodo": "2025",
+      "notas": "Conductor asesinado a balazos por atacantes en moto (ene. 2025). El Agustino tiene la cuarta tasa de homicidios más alta (ene–ago 2025).",
+      "fuentes": [
+        {"medio": "RPP", "fecha": "2025-01-17", "url": "https://rpp.pe/lima/policiales/el-agustino-conductor-fue-acribillado-en-la-via-de-evitamiento-noticia-1610492"},
+        {"medio": "Infobae", "fecha": "2025-08-28", "url": "https://www.infobae.com/peru/2025/08/28/videos-de-la-persecucion-en-la-via-evitamiento-asi-fue-la-captura-de-sicarios-extranjeros-que-asesinaron-a-chofer-de-bus-en-el-agustino/"}
+      ]
+    },
+    {
+      "codigo": "sjl-las-lomas-zarate",
+      "nombre": "Av. Las Lomas – Puente Las Lomas, Zárate (SJL)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.02644,
+      "lng": -76.99138,
+      "radio_m": 500,
+      "periodo": "2026",
+      "notas": "Chofer de minivan asesinado de madrugada (may. 2026). SJL tuvo el mayor número de homicidios de Lima en ene–ago 2025.",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-05-21", "url": "https://www.infobae.com/peru/2026/05/21/cuatro-choferes-asesinados-en-una-semana-transportistas-viven-bajo-amenaza-de-sicarios-y-extorsionadores-en-lima-y-callao/"}
+      ]
+    },
+    {
+      "codigo": "sjl-mariategui",
+      "nombre": "Av. José Carlos Mariátegui (SJL)",
+      "tipo": "extorsion",
+      "nivel": "alto",
+      "lat": -11.96007,
+      "lng": -77.00597,
+      "radio_m": 800,
+      "periodo": "2025",
+      "notas": "Chofer baleado por extorsionadores (sep. 2025), la misma noche de otros ataques a transportistas en SJL.",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2025-09-25", "url": "https://www.infobae.com/peru/2025/09/25/choferes-baleados-en-una-sola-noche-en-sjl-transportes-huascar-y-linea-57-de-las-flores-son-victimas-de-extorsionadores/"}
+      ]
+    },
+    {
+      "codigo": "sjl-las-flores",
+      "nombre": "Av. Las Flores (SJL)",
+      "tipo": "extorsion",
+      "nivel": "alto",
+      "lat": -11.97509,
+      "lng": -77.00188,
+      "radio_m": 800,
+      "periodo": "2025",
+      "notas": "Chofer baleado a la altura del paradero 16 por cobro de cupos (sep. 2025).",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2025-09-25", "url": "https://www.infobae.com/peru/2025/09/25/choferes-baleados-en-una-sola-noche-en-sjl-transportes-huascar-y-linea-57-de-las-flores-son-victimas-de-extorsionadores/"}
+      ]
+    },
+    {
+      "codigo": "comas-collique",
+      "nombre": "Collique – Av. Túpac Amaru / Av. Revolución (Comas)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -11.91500,
+      "lng": -77.03900,
+      "radio_m": 800,
+      "periodo": "2026",
+      "notas": "Chofer asesinado con más de diez disparos en Av. Revolución (may. 2026) y chofer de miniván baleado en Av. Túpac Amaru, cerca del Hospital Sergio Bernales (ago. 2026).",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-05-21", "url": "https://www.infobae.com/peru/2026/05/21/cuatro-choferes-asesinados-en-una-semana-transportistas-viven-bajo-amenaza-de-sicarios-y-extorsionadores-en-lima-y-callao/"},
+        {"medio": "Correo", "fecha": "2026-08-18", "url": "https://diariocorreo.pe/edicion/lima/comas-atacan-a-balazos-a-chofer-de-minivan-en-la-avenida-tupac-amaru-noticia/"}
+      ]
+    },
+    {
+      "codigo": "carabayllo-tupac-amaru",
+      "nombre": "Av. Túpac Amaru – tramo Carabayllo",
+      "tipo": "extorsion",
+      "nivel": "alto",
+      "lat": -11.88607,
+      "lng": -77.02312,
+      "radio_m": 1200,
+      "periodo": "2025",
+      "notas": "Bus atacado a balazos en el km 18.5 por cobro de cupos (sep. 2025); bloqueos de transportistas por la ola de extorsiones (oct. 2025).",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2025-09-14", "url": "https://www.infobae.com/peru/2025/09/14/conductor-de-bus-sobrevive-a-balacera-en-carabayllo-en-medio-de-denuncias-por-cobro-de-cupos/"},
+        {"medio": "Infobae", "fecha": "2025-10-06", "url": "https://www.infobae.com/peru/2025/10/06/paro-de-transportistas-se-agudiza-en-carabayllo-mujer-herida-protestas-quema-de-llantas-y-bloqueo-de-la-av-tupac-amaru/"}
+      ]
+    },
+    {
+      "codigo": "ate-virreyes-nueces",
+      "nombre": "Av. Los Virreyes con Av. Las Nueces (Ate)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.02824,
+      "lng": -76.93219,
+      "radio_m": 500,
+      "periodo": "2026",
+      "notas": "Chofer de combi de la línea 505 asesinado (may. 2026).",
+      "fuentes": [
+        {"medio": "Infobae", "fecha": "2026-05-21", "url": "https://www.infobae.com/peru/2026/05/21/cuatro-choferes-asesinados-en-una-semana-transportistas-viven-bajo-amenaza-de-sicarios-y-extorsionadores-en-lima-y-callao/"}
+      ]
+    },
+    {
+      "codigo": "ate-huaycan-carretera-central",
+      "nombre": "Carretera Central – Huaycán (Ate)",
+      "tipo": "extorsion",
+      "nivel": "muy_alto",
+      "lat": -11.99997,
+      "lng": -76.83882,
+      "radio_m": 1200,
+      "periodo": "2024–2026",
+      "notas": "Cinco buses interprovinciales atacados a balazos en el mismo paradero en menos de un mes por cobro de cupos (dic. 2024); colectivero asesinado en Huaycán (may. 2026).",
+      "fuentes": [
+        {"medio": "Panamericana", "fecha": "2024-12-24", "url": "https://panamericana.pe/24horas/locales/431010-extorsion-huaycan-cinco-buses-interprovinciales-atacados-mes"},
+        {"medio": "Infobae", "fecha": "2026-05-21", "url": "https://www.infobae.com/peru/2026/05/21/cuatro-choferes-asesinados-en-una-semana-transportistas-viven-bajo-amenaza-de-sicarios-y-extorsionadores-en-lima-y-callao/"}
+      ]
+    },
+    {
+      "codigo": "sjm-los-heroes-mall-del-sur",
+      "nombre": "Av. Los Héroes – Mall del Sur (SJM)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.15487,
+      "lng": -76.98227,
+      "radio_m": 500,
+      "periodo": "2026",
+      "notas": "Chofer acribillado frente a su hijo y 20 pasajeros en la cuadra 3 de Av. Los Héroes (oct. 2026).",
+      "fuentes": [
+        {"medio": "La República", "fecha": "2026-10-26", "url": "https://larepublica.pe/sociedad/2026/10/26/acribillan-a-chofer-de-cora-cora-frente-a-su-hijo-y-20-pasajeros-en-san-juan-de-miraflores-1409044"}
+      ]
+    },
+    {
+      "codigo": "sjm-iglesias-caceres",
+      "nombre": "Av. Miguel Iglesias con Av. Andrés A. Cáceres (SJM)",
+      "tipo": "homicidio",
+      "nivel": "alto",
+      "lat": -12.17929,
+      "lng": -76.96264,
+      "radio_m": 500,
+      "periodo": "2026",
+      "notas": "Sicario disparó contra una combi y mató al chofer y a dos pasajeras (mar. 2026).",
+      "fuentes": [
+        {"medio": "La República", "fecha": "2026-03-17", "url": "https://larepublica.pe/sociedad/2026/03/17/sicarios-disparan-contra-combi-y-matan-a-pasajera-en-san-juan-de-miraflores-hay-otros-dos-heridos-graves-1224629"}
+      ]
+    },
+    {
+      "codigo": "huarochiri-carretera-central-km87",
+      "nombre": "Carretera Central km 87 – San Mateo (fuera de Lima Metropolitana)",
+      "tipo": "robo",
+      "nivel": "alto",
+      "lat": -11.80205,
+      "lng": -76.23926,
+      "radio_m": 3000,
+      "periodo": "2024",
+      "notas": "Asalto a camión con 25 toneladas de cacao: le cerraron el paso, ataron al chofer y robaron la carga (oct. 2024). Ruta Lima–Huancayo.",
+      "fuentes": [
+        {"medio": "TV Perú", "fecha": "2024-10-28", "url": "https://www.tvperu.gob.pe/noticias/nacionales/carretera-central-asaltan-camion-de-cacao-y-dejan-a-chofer-amarrado-al-costado-de-la"}
+      ]
+    }
+  ]
+}
