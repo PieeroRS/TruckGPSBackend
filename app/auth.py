@@ -4,6 +4,7 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -51,6 +52,10 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado")
     payload = decode_token(creds.credentials)
     user = db.get(User, payload.get("sub"))
+    if user is None and payload.get("email"):
+        # Con SQLite temporal (Vercel) cada instancia genera IDs nuevos al sembrar;
+        # el correo sí es estable, así la sesión sobrevive entre instancias.
+        user = db.scalar(select(User).where(User.email == payload["email"]))
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
     return user
