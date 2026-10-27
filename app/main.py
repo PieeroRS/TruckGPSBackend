@@ -6,13 +6,15 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import UPLOADS_DIR, settings
 from app.database import Base, SessionLocal, engine
-from app.routers import alerts, auth, dashboard, incidents, profiles, routes, vehicles
+from app.migrate import ensure_columns
+from app.routers import alerts, auth, dashboard, fuel, incidents, profiles, routes, vehicles
 from app.seed import seed_if_empty
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_columns(engine)
     db = SessionLocal()
     try:
         seed_if_empty(db)
@@ -43,6 +45,7 @@ app.include_router(incidents.router, prefix="/api")
 app.include_router(routes.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+app.include_router(fuel.router, prefix="/api")
 
 
 @app.get("/api/health")
