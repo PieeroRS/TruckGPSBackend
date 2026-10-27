@@ -9,6 +9,7 @@ from app.config import UPLOADS_DIR
 from app.database import get_db
 from app.models import Incident, IncidentAttachment, IncidentEvent, User, Vehicle, utcnow
 from app.schemas import IncidentAssignIn, IncidentCommentIn, IncidentStatusIn
+from app.notify import Alert, send_alert
 from app.serializers import incident_out, new_incident_id
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -110,7 +111,38 @@ async def create_incident(
 
     db.flush()
     incident = db.scalar(_query(db).where(Incident.id == incident_id))
+    _notify_incident(db, incident, user)
     return incident_out(incident)
+
+
+SEVERIDAD = {"high": "Alta", "medium": "Media", "low": "Baja"}
+
+
+def _notify_incident(db: Session, incident: Incident, user: User) -> None:
+    placa = incident.vehicle.placa if incident.vehicle else "—"
+    if incident.es_panico:
+        titulo = f"🚨 PÁNICO en {placa}: {incident.titulo}"
+    else:
+        titulo = f"Incidencia en {placa}: {incident.titulo}"
+    send_alert(
+        db,
+        Alert(
+            tipo="panico" if incident.es_panico else "incidente",
+            titulo=titulo,
+            lineas=[
+                f"Reportado por: {user.full_name}",
+                f"Categoría: {incident.categoria} · Severidad: {SEVERIDAD.get(incident.severidad, incident.severidad)}",
+                f"Ubicación: {incident.ubicacion}",
+                f"Detalle: {incident.descripcion[:300]}",
+                f"Código: {incident.id}",
+            ],
+            lat=incident.lat,
+            lng=incident.lng,
+            vehicle_id=incident.vehicle_id,
+            incident_id=incident.id,
+            path="/incidencias",
+        ),
+    )
 
 
 @router.patch("/{incident_id}/status")

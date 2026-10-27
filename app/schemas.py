@@ -131,3 +131,13 @@ class FuelLogIn(BaseModel):
 class VehicleEfficiencyIn(BaseModel):
     rendimiento_km_gal: float | None = Field(default=None, gt=0, le=100)
     tanque_gal: float | None = Field(default=None, gt=0, le=2000)
+
+
+class RiskZoneIn(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+    tipo: str = "riesgo"
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    radio_m: int = Field(default=500, ge=50, le=20000)
+    activa: bool = True
+    notas: str | None = None

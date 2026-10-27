@@ -18,6 +18,17 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(DATA_DIR / 'truckgps.db').as_posix()}"
     cors_origins: str = "http://localhost:4200,http://127.0.0.1:4200"
 
+    # Avisos al supervisor. Se configuran como variables de entorno en Vercel.
+    app_url: str = "https://truck-gps-umber.vercel.app"
+    alert_emails: str = ""  # correos separados por coma
+    alert_phones: str = ""  # celulares con código de país, separados por coma (+51...)
+    alerts_from_email: str = "TruckGPS <onboarding@resend.dev>"
+    resend_api_key: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from: str = ""  # número de Twilio que envía el SMS
+    zone_alert_cooldown_min: int = 30
+
 
 settings = Settings()
 

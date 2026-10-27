@@ -8,6 +8,7 @@ from app.auth import get_current_user, is_staff, require_staff
 from app.database import get_db
 from app.models import Incident, User, Vehicle, VehiclePosition, utcnow
 from app.schemas import PositionIn, VehicleUpsertIn
+from app.routers.zones import check_zones
 from app.serializers import vehicle_option_out, vehicle_out
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
@@ -148,8 +149,10 @@ def report_position(
     vehicle.estado = "ok"
     vehicle.updated_at = utcnow()
     db.add(vehicle)
+    zonas = check_zones(db, vehicle, body.lat, body.lng)
     return {
         "ok": True,
+        "zonas_alertadas": [z.nombre for z in zonas],
         "vehicle_id": vehicle.id,
         "lat": body.lat,
         "lng": body.lng,

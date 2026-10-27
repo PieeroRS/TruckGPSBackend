@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import hash_password
-from app.models import AiAlert, FuelLog, Incident, IncidentEvent, Trip, User, Vehicle, utcnow
+from app.models import AiAlert, FuelLog, RiskZone, Incident, IncidentEvent, Trip, User, Vehicle, utcnow
 
 DEFAULT_PASSWORD = "password"
 
@@ -141,6 +141,28 @@ def seed_if_empty(db: Session) -> None:
                 severidad="low",
                 icon="route",
                 placas_afectadas=["ABC-123"],
+            ),
+        ]
+    )
+
+    db.add_all(
+        [
+            RiskZone(
+                nombre="Pasamayo (curvas y neblina)",
+                tipo="peligro_vial",
+                lat=-11.6566,
+                lng=-77.2235,
+                radio_m=1500,
+                notas="Ejemplo: tramo con neblina y curvas cerradas.",
+            ),
+            RiskZone(
+                nombre="Cruce de prueba (centro de Lima)",
+                tipo="riesgo",
+                lat=-12.0464,
+                lng=-77.0428,
+                radio_m=300,
+                activa=False,
+                notas="Ejemplo desactivado. Actívalo para probar los avisos.",
             ),
         ]
     )

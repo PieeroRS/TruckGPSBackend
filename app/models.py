@@ -192,3 +192,50 @@ class FuelLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     vehicle: Mapped[Vehicle] = relationship()
+
+
+class RiskZone(Base):
+    """Zona o punto peligroso: al entrar un vehículo se avisa al supervisor."""
+
+    __tablename__ = "risk_zones"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    nombre: Mapped[str] = mapped_column(String(120), nullable=False)
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False, default="riesgo")
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    radio_m: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
+    activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notas: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ZoneState(Base):
+    """Si un vehículo está dentro de una zona y cuándo se avisó por última vez."""
+
+    __tablename__ = "zone_states"
+
+    vehicle_id: Mapped[str] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="CASCADE"), primary_key=True)
+    zone_id: Mapped[str] = mapped_column(String(36), ForeignKey("risk_zones.id", ondelete="CASCADE"), primary_key=True)
+    inside: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_alert_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationLog(Base):
+    """Registro de cada aviso enviado (o que falló) por correo o SMS."""
+
+    __tablename__ = "notification_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)  # panico | incidente | zona | prueba
+    titulo: Mapped[str] = mapped_column(String(200), nullable=False)
+    mensaje: Mapped[str] = mapped_column(Text, nullable=False)
+    canal: Mapped[str] = mapped_column(String(20), nullable=False)  # email | sms
+    destinatarios: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    estado: Mapped[str] = mapped_column(String(20), nullable=False)  # enviado | fallido | sin_configurar
+    error: Mapped[str | None] = mapped_column(Text)
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="SET NULL"))
+    zone_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("risk_zones.id", ondelete="SET NULL"))
+    incident_id: Mapped[str | None] = mapped_column(String(40), ForeignKey("incidents.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
