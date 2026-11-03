@@ -511,15 +511,16 @@ def evaluate_traffic(db: Session, vehicle: Vehicle, now: datetime | None = None)
         pass
     # Desvíos forzados: puntos de paso a cada lado de la vía, a la altura del evento.
     _, _, rumbo_ev = point_at(geom, ev_along % total if ciclica else ev_along)
-    for dist in (1200, 2200):
+    for dist in (1200, 2200, 3200):
         for lado in (90, -90):
             via = destination(ev.lat, ev.lng, rumbo_ev + lado, dist)
             try:
                 cands += osrm_routes([origin, via, dest])
             except RoutingError:
                 continue
-    mejores = sorted((estimate(c, events) for c in cands), key=lambda c: c["duration_traffic_min"])
-    mejores = [m for m in mejores if m["distance_km"] <= tramo_km * 3 + 2]
+    # Sólo cuentan las que esquivan el evento; las que lo atraviesan no son una alternativa real.
+    libres = [c for c in cands if not events_on_path(c["geometry"], [ev]) and c["distance_km"] <= tramo_km * 4 + 3]
+    mejores = sorted((estimate(c, events) for c in libres), key=lambda c: c["duration_traffic_min"])
     if mejores and mejores[0]["duration_traffic_min"] < actual["duration_traffic_min"] - 1:
         m = mejores[0]
         alternativa = {
