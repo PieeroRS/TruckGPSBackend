@@ -587,7 +587,7 @@ def advance(db: Session, v: Vehicle, st: SimState, now: datetime, force: bool = 
     skip = st.saltar_chequeo
     st.saltar_chequeo = False
     st.ultimo_registro = now
-    ingest_position(db, v, round(pos["lat"], 6), round(pos["lng"], 6), pos["vel"], now, skip_jump=skip)
+    ingest_position(db, v, round(pos["lat"], 6), round(pos["lng"], 6), pos["vel"], now, skip_jump=skip, precision_m=5.0)
 
 
 def _close_stale_traffic_alerts(db: Session) -> None:

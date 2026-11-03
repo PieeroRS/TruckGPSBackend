@@ -68,9 +68,11 @@ class VehicleUpsertIn(BaseModel):
 
 
 class PositionIn(BaseModel):
-    lat: float
-    lng: float
-    velocidad: int = 0
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    velocidad: int = Field(default=0, ge=0, le=300)
+    # coords.accuracy del navegador: radio en metros con 68 % de confianza.
+    precision_m: float | None = Field(default=None, ge=0, le=100000)
 
 
 class IncidentStatusIn(BaseModel):

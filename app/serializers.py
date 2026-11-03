@@ -37,6 +37,9 @@ def vehicle_out(v: Vehicle) -> dict:
         "rendimientoKmGal": v.rendimiento_km_gal,
         "tanqueGal": v.tanque_gal,
         "simulado": bool(v.simulado),
+        # Calidad del dato: sin ultimaPosicion, lat/lng son una referencia (no un GPS).
+        "precisionM": round(v.precision_m) if v.precision_m is not None else None,
+        "ultimaPosicion": iso(v.ultima_posicion_at),
     }
 
 

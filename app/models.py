@@ -49,6 +49,9 @@ class Vehicle(Base):
     tanque_gal: Mapped[float | None] = mapped_column(Float)
     # Unidad de prueba: su posición la genera el simulador (no un GPS real).
     simulado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Precisión (radio en metros) del último reporte y cuándo llegó. Sin reporte = posición de referencia.
+    precision_m: Mapped[float | None] = mapped_column(Float)
+    ultima_posicion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -65,6 +68,7 @@ class VehiclePosition(Base):
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     velocidad: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    precision_m: Mapped[float | None] = mapped_column(Float)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     vehicle: Mapped[Vehicle] = relationship(back_populates="positions")

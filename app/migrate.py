@@ -12,6 +12,11 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
         "rendimiento_km_gal": "FLOAT",
         "tanque_gal": "FLOAT",
         "simulado": "BOOLEAN DEFAULT FALSE NOT NULL",
+        "precision_m": "FLOAT",
+        "ultima_posicion_at": "TIMESTAMP",
+    },
+    "vehicle_positions": {
+        "precision_m": "FLOAT",
     },
     "ai_alerts": {
         "tipo": "VARCHAR(30) DEFAULT 'manual' NOT NULL",
