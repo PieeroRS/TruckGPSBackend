@@ -326,6 +326,34 @@ def check_route_deviation(db: Session, vehicle: Vehicle, lat: float, lng: float)
             route.progress_pct = max(0, min(99, int(pr.along_m / total * 100)))
 
 
+ARRIVAL_M = 150
+
+
+def check_arrival(db: Session, vehicle: Vehicle, lat: float, lng: float, now: datetime, precision_m: float | None) -> NavRoute | None:
+    """Unidad real que llega al destino de su ruta en curso: la ruta se completa sola."""
+    if vehicle.simulado:
+        return None  # el simulador maneja su propia llegada
+    route = active_route(db, vehicle)
+    if route is None or route.dest_lat is None or route.dest_lng is None:
+        return None
+    dist = haversine_m(lat, lng, route.dest_lat, route.dest_lng)
+    if dist > max(ARRIVAL_M, min(precision_m or 0, 300)):
+        return None
+    # Evita completar al instante una ruta cuyo origen y destino están cerca.
+    started = aware(route.started_at)
+    if (route.progress_pct or 0) < 70 and started is not None and (now - started).total_seconds() < 180:
+        return None
+    route.status = "completada"
+    route.progress_pct = 100
+    route.completed_at = now
+    record_event(db, vehicle, "ruta_completada", "low", f"{vehicle.placa} llegó a su destino «{route.dest_name}».", lat, lng, {"ruta": route.route_label})
+    alert = active_alert(db, vehicle.id, "desvio")
+    if alert:
+        add_history(alert, "llegada", "Llegó a destino", "La unidad llegó al destino de la ruta.")
+    set_state(db, vehicle.id, "desvio", None)
+    return route
+
+
 def check_stop_in_risk_zone(db: Session, vehicle: Vehicle, speed: float, lat: float, lng: float, now: datetime) -> None:
     inside_ids = [
         s.zone_id
@@ -467,14 +495,21 @@ def ingest_position(
     spoofed = False if skip_jump else check_spoofing(db, vehicle, prev, lat, lng, now, precision_m)
     if spoofed:
         evaluate_sabotage(db, vehicle)
-        return {"spoofing": True, "zonas": [], "aproximada": False}
+        return {"spoofing": True, "zonas": [], "aproximada": False, "llego": None}
     check_signal_recovered(db, vehicle, lat, lng, now)
     aproximada = precision_m is not None and precision_m > COARSE_RULES_M
+    llego = None
     if not aproximada:
         check_route_deviation(db, vehicle, lat, lng)
+        llego = check_arrival(db, vehicle, lat, lng, now, precision_m)
     zonas = check_zones(db, vehicle, lat, lng) if precision_m is None or precision_m <= COARSE_ZONES_M else []
     if not aproximada:
         check_stop_in_risk_zone(db, vehicle, speed, lat, lng, now)
     if get_state(db, vehicle.id, "desvio").get("activo"):
         evaluate_sabotage(db, vehicle)
-    return {"spoofing": False, "zonas": [z.nombre for z in zonas], "aproximada": aproximada}
+    return {
+        "spoofing": False,
+        "zonas": [z.nombre for z in zonas],
+        "aproximada": aproximada,
+        "llego": {"ruta": llego.route_label, "destino": llego.dest_name} if llego else None,
+    }

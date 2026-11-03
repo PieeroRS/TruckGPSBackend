@@ -174,6 +174,7 @@ def report_position(
         "zonas_alertadas": zonas,
         "spoofing": res["spoofing"],
         "aproximada": res["aproximada"],
+        "llego": res["llego"],
         "precision_m": body.precision_m,
         "vehicle_id": vehicle.id,
         "lat": body.lat,
