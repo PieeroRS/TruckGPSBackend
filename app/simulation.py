@@ -36,8 +36,8 @@ LOOP_NOTE = "[circuito-sim]"
 GEOFENCE_CODE = "sim-geocerca-operacion"
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 LOOP_SPEED_KMH = 35.0
-RECORD_EVERY_S = 8
-TICK_EVERY_S = 4
+RECORD_EVERY_S = 4
+TICK_EVERY_S = 3
 
 _LOOP = json.loads((Path(__file__).resolve().parent / "data" / "sim_loop.json").read_text(encoding="utf-8"))
 LOOP_GEOMETRY: list[list[float]] = _LOOP["geometry"]
