@@ -465,7 +465,7 @@ def simulate_traffic(db: Session, v: Vehicle, st: SimState, base: dict, now: dat
 def evaluate_traffic(db: Session, vehicle: Vehicle, now: datetime | None = None) -> object | None:
     """Si la ruta activa atraviesa un evento de tráfico, estima la demora y busca una alternativa."""
     from app.detection import active_route
-    from app.routing import EVENT_DELAY_MIN, RoutingError, estimate, events_on_path, osrm_routes, detour_alternative
+    from app.routing import EVENT_DELAY_MIN, RoutingError, estimate, events_on_path, osrm_routes
 
     now = now or utcnow()
     route = active_route(db, vehicle)
@@ -488,7 +488,7 @@ def evaluate_traffic(db: Session, vehicle: Vehicle, now: datetime | None = None)
     if ciclica:
         if ev_along < along:
             ev_along += total
-        rejoin = ev_along + ev.radio_m + 800
+        rejoin = ev_along + ev.radio_m + 1800
         target_along = rejoin % total
         tramo = sub_path(geom, along, min(rejoin, total)) if rejoin <= total else sub_path(geom, along, total) + sub_path(geom, 0, rejoin - total)
     else:
@@ -502,22 +502,33 @@ def evaluate_traffic(db: Session, vehicle: Vehicle, now: datetime | None = None)
     actual = estimate({"distance_km": round(tramo_km, 2), "duration_min": round(tramo_km / vel * 60, 1), "geometry": tramo}, events)
 
     alternativa = None
+    origin = (vehicle.lat, vehicle.lng)
+    dest = (target[0], target[1])
+    cands: list[dict] = []
     try:
-        cands = osrm_routes([(vehicle.lat, vehicle.lng), (target[0], target[1])], alternatives=3)
-        cands += detour_alternative((vehicle.lat, vehicle.lng), (target[0], target[1]), (ev.lat, ev.lng))
-        mejores = [estimate(c, events) for c in cands if not events_on_path(c["geometry"], [ev])]
-        mejores.sort(key=lambda c: c["duration_traffic_min"])
-        if mejores and mejores[0]["duration_traffic_min"] < actual["duration_traffic_min"] - 1:
-            m = mejores[0]
-            alternativa = {
-                "geometry": m["geometry"],
-                "distance_km": m["distance_km"],
-                "duration_traffic_min": m["duration_traffic_min"],
-                "ahorro_min": round(actual["duration_traffic_min"] - m["duration_traffic_min"], 1),
-                "rejoin_m": target_along,
-            }
+        cands += osrm_routes([origin, dest], alternatives=3)
     except RoutingError:
         pass
+    # Desvíos forzados: puntos de paso a cada lado de la vía, a la altura del evento.
+    _, _, rumbo_ev = point_at(geom, ev_along % total if ciclica else ev_along)
+    for dist in (1200, 2200):
+        for lado in (90, -90):
+            via = destination(ev.lat, ev.lng, rumbo_ev + lado, dist)
+            try:
+                cands += osrm_routes([origin, via, dest])
+            except RoutingError:
+                continue
+    mejores = sorted((estimate(c, events) for c in cands), key=lambda c: c["duration_traffic_min"])
+    mejores = [m for m in mejores if m["distance_km"] <= tramo_km * 3 + 2]
+    if mejores and mejores[0]["duration_traffic_min"] < actual["duration_traffic_min"] - 1:
+        m = mejores[0]
+        alternativa = {
+            "geometry": m["geometry"],
+            "distance_km": m["distance_km"],
+            "duration_traffic_min": m["duration_traffic_min"],
+            "ahorro_min": round(actual["duration_traffic_min"] - m["duration_traffic_min"], 1),
+            "rejoin_m": target_along,
+        }
 
     demora = EVENT_DELAY_MIN.get(ev.nivel, 10)
     desc = (
@@ -575,6 +586,20 @@ def advance(db: Session, v: Vehicle, st: SimState, now: datetime, force: bool = 
     ingest_position(db, v, round(pos["lat"], 6), round(pos["lng"], 6), pos["vel"], now, skip_jump=skip)
 
 
+def _close_stale_traffic_alerts(db: Session) -> None:
+    """Las alertas de tráfico se cierran solas cuando el evento termina."""
+    from app.detection import add_history
+    from app.models import AiAlert
+
+    for a in db.scalars(select(AiAlert).where(AiAlert.tipo == "trafico", AiAlert.activa.is_(True))).all():
+        ev_id = (a.payload or {}).get("evento_id")
+        ev = db.get(TrafficEvent, ev_id) if ev_id else None
+        if ev is None or not ev.activo:
+            a.estado = "resuelta"
+            a.activa = False
+            add_history(a, "trafico_normalizado", "Tráfico normalizado", "El evento de tráfico terminó; la alerta se cerró automáticamente.")
+
+
 def tick(db: Session, force: bool = False) -> None:
     """Avanza la simulación y revisa pérdidas de señal. Se llama al consultar datos."""
     global _last_tick
@@ -590,6 +615,7 @@ def tick(db: Session, force: bool = False) -> None:
             for ev in db.scalars(select(TrafficEvent).where(TrafficEvent.activo.is_(True))).all():
                 if ev.expira_at and now >= aware(ev.expira_at):
                     ev.activo = False
+            _close_stale_traffic_alerts(db)
             advance(db, v, st, now)
             check_signal_loss(db, now)
     except Exception:  # noqa: BLE001 - la simulación nunca debe romper la consulta principal

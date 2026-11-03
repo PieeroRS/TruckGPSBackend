@@ -104,7 +104,16 @@ def check_zones(db: Session, vehicle: Vehicle, lat: float, lng: float) -> list[R
     now = utcnow()
     cooldown = timedelta(minutes=settings.zone_alert_cooldown_min)
     fired: list[RiskZone] = []
+    sim_on_loop = False
+    if vehicle.simulado:
+        from app.models import SimState
+
+        st = db.get(SimState, vehicle.id)
+        sim_on_loop = bool(st and st.ciclica)
     for z in zones:
+        # La geocerca del circuito de prueba sólo vigila a la unidad simulada mientras recorre su circuito.
+        if z.codigo == "sim-geocerca-operacion" and not sim_on_loop:
+            continue
         dist_m = haversine_km(lat, lng, z.lat, z.lng) * 1000
         state = db.get(ZoneState, (vehicle.id, z.id))
         if state is None:
