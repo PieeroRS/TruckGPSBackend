@@ -26,7 +26,7 @@ from app.detection import (
     set_state,
     upsert_alert,
 )
-from app.geo import destination, haversine_m, path_length_m, point_at, project, sub_path
+from app.geo import alongs_near, destination, haversine_m, path_length_m, point_at, project, sub_path
 from app.models import NavRoute, RiskZone, SimState, TrafficEvent, Vehicle, VehicleEvent, utcnow
 
 log = logging.getLogger("truckgps.sim")
@@ -473,27 +473,30 @@ def evaluate_traffic(db: Session, vehicle: Vehicle, now: datetime | None = None)
         return None
     events = db.scalars(select(TrafficEvent).where(TrafficEvent.activo.is_(True))).all()
     geom = route.geometry
-    pr = project(geom, vehicle.lat, vehicle.lng)
-    along = pr.along_m if pr else 0.0
     total = path_length_m(geom)
     st = db.get(SimState, vehicle.id) if vehicle.simulado else None
     ciclica = bool(st and st.ciclica)
+    if st is not None and st.escenario == "normal" and st.nav_route_id == route.id:
+        along = base_position(db, st, now)["along"]  # avance exacto (la ruta puede repetir vías)
+    else:
+        pr = project(geom, vehicle.lat, vehicle.lng)
+        along = pr.along_m if pr else 0.0
 
-    # Tramo que falta (en el circuito: hasta 1 km después del evento, donde se retoma).
-    hits_all = events_on_path(geom, events)
-    if not hits_all:
+    # Primer evento por delante de la unidad (en el circuito puede estar en la siguiente vuelta).
+    ev, ev_along = None, None
+    for cand in events_on_path(geom, events):
+        for a in alongs_near(geom, cand.lat, cand.lng, cand.radio_m):
+            if ciclica and a < along:
+                a += total
+            if a >= along and (ev_along is None or a < ev_along):
+                ev, ev_along = cand, a
+    if ev is None:
         return None
-    ev = hits_all[0]
-    ev_along = project(geom, ev.lat, ev.lng).along_m
     if ciclica:
-        if ev_along < along:
-            ev_along += total
         rejoin = ev_along + ev.radio_m + 1800
         target_along = rejoin % total
         tramo = sub_path(geom, along, min(rejoin, total)) if rejoin <= total else sub_path(geom, along, total) + sub_path(geom, 0, rejoin - total)
     else:
-        if ev_along < along:
-            return None
         target_along = None
         tramo = sub_path(geom, along, total)
     target = tramo[-1]

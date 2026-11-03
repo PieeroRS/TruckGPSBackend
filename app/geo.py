@@ -109,3 +109,28 @@ def sub_path(path: list[list[float]], from_m: float, to_m: float) -> list[list[f
     lat, lng, _ = point_at(path, to_m)
     out.append([lat, lng])
     return out
+
+
+def alongs_near(path: list[list[float]], lat: float, lng: float, max_d: float) -> list[float]:
+    """Avances de todos los tramos de la ruta que pasan a menos de max_d metros del punto.
+
+    Útil cuando la ruta pasa dos veces por la misma vía (ida y vuelta): project() devuelve sólo
+    el tramo más cercano, que puede ser el de la otra pasada.
+    """
+    out: list[float] = []
+    px, py = _xy(lat, lng, lat)
+    acc = 0.0
+    for a, b in zip(path, path[1:]):
+        ax, ay = _xy(a[0], a[1], lat)
+        bx, by = _xy(b[0], b[1], lat)
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        t = 0.0 if seg2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg2))
+        d = math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+        seg_len = math.sqrt(seg2)
+        if d <= max_d:
+            along = acc + t * seg_len
+            if not out or along - out[-1] > max_d:
+                out.append(along)
+        acc += seg_len
+    return out
