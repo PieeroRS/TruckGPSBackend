@@ -73,7 +73,13 @@ def list_routes(user: User = Depends(get_current_user), db: Session = Depends(ge
     rows = db.scalars(q).unique().all()
     if is_staff(user):
         return [nav_route_out(r) for r in rows]
-    return [nav_route_out(r) for r in rows if r.driver_id == user.id or r.created_by == user.id]
+    # El conductor ve sus rutas y las de la unidad que está manejando.
+    mis_unidades = {v.id for v in db.scalars(select(Vehicle).where(Vehicle.conductor_id == user.id)).all()}
+    return [
+        nav_route_out(r)
+        for r in rows
+        if r.driver_id == user.id or r.created_by == user.id or (r.vehicle_id and r.vehicle_id in mis_unidades)
+    ]
 
 
 @router.post("")
@@ -121,7 +127,11 @@ def update_route(
     route = db.get(NavRoute, route_id)
     if route is None:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    if not is_staff(user) and route.driver_id != user.id and route.created_by != user.id:
+    conduce = False
+    if route.vehicle_id:
+        veh = db.get(Vehicle, route.vehicle_id)
+        conduce = bool(veh and veh.conductor_id == user.id)
+    if not is_staff(user) and route.driver_id != user.id and route.created_by != user.id and not conduce:
         raise HTTPException(status_code=403, detail="Sin permiso para actualizar esta ruta")
 
     if route.notes and route.notes.startswith("[circuito-sim]") and body.status != "en-curso":
