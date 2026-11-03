@@ -33,6 +33,10 @@ SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
 LIMA = timezone(timedelta(hours=-5))
 
 SPOOF_MIN_JUMP_M = 2000
+# Con una precisión peor que esto (ubicación por WiFi/IP) no se evalúan desvíos ni paradas,
+# y con peor que COARSE_ZONES_M tampoco zonas: un punto impreciso daría falsas alarmas.
+COARSE_RULES_M = 300
+COARSE_ZONES_M = 500
 SPOOF_MAX_KMH = 200
 DEVIATION_M = 250
 DEVIATION_HIGH_M = 1000
@@ -222,15 +226,22 @@ def route_geometry(db: Session, vehicle: Vehicle, route: NavRoute | None) -> lis
     return None
 
 
-def check_spoofing(db: Session, vehicle: Vehicle, prev: VehiclePosition | None, lat: float, lng: float, now: datetime) -> bool:
+def check_spoofing(
+    db: Session, vehicle: Vehicle, prev: VehiclePosition | None, lat: float, lng: float, now: datetime, precision_m: float | None = None
+) -> bool:
     if prev is None:
         return False
     dt = (now - aware(prev.recorded_at)).total_seconds()
     if dt <= 0:
         return False
     dist = haversine_m(prev.lat, prev.lng, lat, lng)
+    # Un salto explicable por la imprecisión de los dos puntos no es spoofing
+    # (p. ej. pasar de ubicación aproximada por IP a GPS).
+    incertidumbre = (prev.precision_m or 0) + (precision_m or 0)
+    if incertidumbre > COARSE_ZONES_M or dist - incertidumbre < SPOOF_MIN_JUMP_M:
+        return False
     kmh = dist / dt * 3.6
-    if dist < SPOOF_MIN_JUMP_M or kmh < SPOOF_MAX_KMH:
+    if kmh < SPOOF_MAX_KMH:
         return False
     desc = (
         f"La posición de {vehicle.placa} saltó {dist / 1000:.1f} km en {dt:.0f} s "
@@ -428,7 +439,16 @@ def check_signal_loss(db: Session, now: datetime | None = None) -> int:
     return count
 
 
-def ingest_position(db: Session, vehicle: Vehicle, lat: float, lng: float, speed: float, now: datetime | None = None, skip_jump: bool = False) -> dict:
+def ingest_position(
+    db: Session,
+    vehicle: Vehicle,
+    lat: float,
+    lng: float,
+    speed: float,
+    now: datetime | None = None,
+    skip_jump: bool = False,
+    precision_m: float | None = None,
+) -> dict:
     """Guarda una posición y corre todas las reglas. Devuelve lo que se disparó."""
     from app.routers.zones import check_zones
 
@@ -436,20 +456,25 @@ def ingest_position(db: Session, vehicle: Vehicle, lat: float, lng: float, speed
     prev = db.scalar(
         select(VehiclePosition).where(VehiclePosition.vehicle_id == vehicle.id).order_by(VehiclePosition.recorded_at.desc())
     )
-    db.add(VehiclePosition(vehicle_id=vehicle.id, lat=lat, lng=lng, velocidad=int(speed), recorded_at=now))
+    db.add(VehiclePosition(vehicle_id=vehicle.id, lat=lat, lng=lng, velocidad=int(speed), precision_m=precision_m, recorded_at=now))
     vehicle.lat, vehicle.lng, vehicle.velocidad = lat, lng, int(speed)
+    vehicle.precision_m = precision_m
+    vehicle.ultima_posicion_at = now
     vehicle.updated_at = now
     db.add(vehicle)
     db.flush()
 
-    spoofed = False if skip_jump else check_spoofing(db, vehicle, prev, lat, lng, now)
+    spoofed = False if skip_jump else check_spoofing(db, vehicle, prev, lat, lng, now, precision_m)
     if spoofed:
         evaluate_sabotage(db, vehicle)
-        return {"spoofing": True, "zonas": []}
+        return {"spoofing": True, "zonas": [], "aproximada": False}
     check_signal_recovered(db, vehicle, lat, lng, now)
-    check_route_deviation(db, vehicle, lat, lng)
-    zonas = check_zones(db, vehicle, lat, lng)
-    check_stop_in_risk_zone(db, vehicle, speed, lat, lng, now)
+    aproximada = precision_m is not None and precision_m > COARSE_RULES_M
+    if not aproximada:
+        check_route_deviation(db, vehicle, lat, lng)
+    zonas = check_zones(db, vehicle, lat, lng) if precision_m is None or precision_m <= COARSE_ZONES_M else []
+    if not aproximada:
+        check_stop_in_risk_zone(db, vehicle, speed, lat, lng, now)
     if get_state(db, vehicle.id, "desvio").get("activo"):
         evaluate_sabotage(db, vehicle)
-    return {"spoofing": False, "zonas": [z.nombre for z in zonas]}
+    return {"spoofing": False, "zonas": [z.nombre for z in zonas], "aproximada": aproximada}

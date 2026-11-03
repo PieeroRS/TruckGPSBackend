@@ -143,16 +143,38 @@ def report_position(
     if vehicle.conductor_id is None:
         vehicle.conductor_id = user.id
 
-    from app.detection import ingest_position
+    from app.detection import aware, ingest_position
+
+    # No reemplazar un GPS preciso y reciente por una lectura mucho peor (WiFi/IP) del mismo equipo.
+    now = utcnow()
+    last_at = aware(vehicle.ultima_posicion_at)
+    if (
+        body.precision_m is not None
+        and vehicle.precision_m is not None
+        and last_at is not None
+        and (now - last_at).total_seconds() < 60
+        and body.precision_m > max(150.0, vehicle.precision_m * 4)
+    ):
+        return {
+            "ok": True,
+            "ignorada": True,
+            "motivo": f"Lectura imprecisa (±{body.precision_m:.0f} m); se mantiene la anterior (±{vehicle.precision_m:.0f} m).",
+            "vehicle_id": vehicle.id,
+            "lat": vehicle.lat,
+            "lng": vehicle.lng,
+            "precision_m": vehicle.precision_m,
+        }
 
     if vehicle.estado != "alert":
         vehicle.estado = "ok"
-    res = ingest_position(db, vehicle, body.lat, body.lng, body.velocidad)
+    res = ingest_position(db, vehicle, body.lat, body.lng, body.velocidad, precision_m=body.precision_m)
     zonas = res["zonas"]
     return {
         "ok": True,
         "zonas_alertadas": zonas,
         "spoofing": res["spoofing"],
+        "aproximada": res["aproximada"],
+        "precision_m": body.precision_m,
         "vehicle_id": vehicle.id,
         "lat": body.lat,
         "lng": body.lng,
