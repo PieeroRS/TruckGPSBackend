@@ -21,6 +21,7 @@ ZONE_TYPES = {
     "robo": "Zona de robos",
     "homicidio": "Homicidios / sicariato",
     "extorsion": "Extorsión a transportistas",
+    "geocerca": "Geocerca de operación",
     "sin_senal": "Sin señal",
     "peligro_vial": "Peligro vial",
     "riesgo": "Zona de riesgo",
@@ -28,6 +29,30 @@ ZONE_TYPES = {
 # Para salir de la zona hay que alejarse un 10% más que el radio (evita avisos
 # repetidos cuando el GPS oscila justo en el borde).
 HISTERESIS = 1.1
+
+
+def _geofence_exit(db: Session, vehicle: Vehicle, z: RiskZone, lat: float, lng: float, dist_m: float, now: datetime) -> None:
+    from app.detection import evaluate_sabotage, record_event, upsert_alert
+
+    fuera = dist_m - z.radio_m
+    desc = (
+        f"{vehicle.placa} salió de la geocerca «{z.nombre}» y está {fuera:,.0f} m fuera de su límite "
+        f"(hora {now.astimezone(timezone(timedelta(hours=-5))).strftime('%H:%M')})."
+    )
+    record_event(db, vehicle, "salida_zona", "high", desc, lat, lng, {"zona": z.nombre, "fuera_m": round(fuera)})
+    upsert_alert(
+        db,
+        vehicle,
+        "salida_zona",
+        "high",
+        f"Salida de zona geográfica: {vehicle.placa}",
+        desc,
+        lat,
+        lng,
+        {"zona": z.nombre, "zona_id": z.id, "fuera_m": round(fuera)},
+        icon="map-pin",
+    )
+    evaluate_sabotage(db, vehicle)
 
 
 def zone_out(z: RiskZone) -> dict:
@@ -46,6 +71,7 @@ def zone_out(z: RiskZone) -> dict:
         "nivel": z.nivel,
         "fuentes": z.fuentes or [],
         "periodo": z.periodo,
+        "alertaEn": z.alerta_en or "entrada",
         "createdAt": iso(z.created_at),
     }
 
@@ -78,12 +104,29 @@ def check_zones(db: Session, vehicle: Vehicle, lat: float, lng: float) -> list[R
     now = utcnow()
     cooldown = timedelta(minutes=settings.zone_alert_cooldown_min)
     fired: list[RiskZone] = []
+    sim_on_loop = False
+    if vehicle.simulado:
+        from app.models import SimState
+
+        st = db.get(SimState, vehicle.id)
+        sim_on_loop = bool(st and st.ciclica)
     for z in zones:
+        # La geocerca del circuito de prueba sólo vigila a la unidad simulada mientras recorre su circuito.
+        if z.codigo == "sim-geocerca-operacion" and not sim_on_loop:
+            continue
         dist_m = haversine_km(lat, lng, z.lat, z.lng) * 1000
         state = db.get(ZoneState, (vehicle.id, z.id))
         if state is None:
             state = ZoneState(vehicle_id=vehicle.id, zone_id=z.id, inside=False)
             db.add(state)
+        if (z.alerta_en or "entrada") == "salida":
+            if dist_m <= z.radio_m:
+                state.inside = True
+            elif state.inside and dist_m > z.radio_m * 1.05:
+                state.inside = False
+                _geofence_exit(db, vehicle, z, lat, lng, dist_m, now)
+                fired.append(z)
+            continue
         if dist_m <= z.radio_m:
             last = _aware(state.last_alert_at)
             if not state.inside and (last is None or now - last >= cooldown):
@@ -137,6 +180,7 @@ def _apply(z: RiskZone, body: RiskZoneIn) -> None:
     z.radio_m = body.radio_m
     z.activa = body.activa
     z.notas = (body.notas or "").strip() or None
+    z.alerta_en = "salida" if (body.tipo == "geocerca" or body.alerta_en == "salida") else "entrada"
 
 
 @router.post("/zones")

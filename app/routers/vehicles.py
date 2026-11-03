@@ -8,7 +8,6 @@ from app.auth import get_current_user, is_staff, require_staff
 from app.database import get_db
 from app.models import Incident, User, Vehicle, VehiclePosition, utcnow
 from app.schemas import PositionIn, VehicleUpsertIn
-from app.routers.zones import check_zones
 from app.serializers import vehicle_option_out, vehicle_out
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
@@ -23,6 +22,9 @@ def _load_vehicle(db: Session, vehicle_id: str) -> Vehicle:
 
 @router.get("")
 def list_vehicles(_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.simulation import tick
+
+    tick(db)
     rows = db.scalars(select(Vehicle).options(joinedload(Vehicle.driver)).order_by(Vehicle.placa)).unique().all()
     return [vehicle_out(v) for v in rows]
 
@@ -87,6 +89,8 @@ def update_vehicle(
 @router.delete("/{vehicle_id}")
 def delete_vehicle(vehicle_id: str, _user: User = Depends(require_staff), db: Session = Depends(get_db)):
     vehicle = _load_vehicle(db, vehicle_id)
+    if vehicle.simulado:
+        raise HTTPException(status_code=400, detail="La unidad de prueba no se puede eliminar; usa Reiniciar en el Simulador")
     incident_count = db.scalar(select(func.count()).select_from(Incident).where(Incident.vehicle_id == vehicle_id)) or 0
     if incident_count:
         raise HTTPException(status_code=400, detail="No se puede eliminar: el vehículo tiene incidencias")
@@ -97,6 +101,8 @@ def delete_vehicle(vehicle_id: str, _user: User = Depends(require_staff), db: Se
 @router.post("/{vehicle_id}/claim")
 def claim_vehicle(vehicle_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     vehicle = _load_vehicle(db, vehicle_id)
+    if vehicle.simulado:
+        raise HTTPException(status_code=400, detail="La unidad de prueba se mueve sola; no se puede usar con el GPS del celular")
     if vehicle.conductor_id and vehicle.conductor_id != user.id:
         raise HTTPException(status_code=409, detail="Este vehículo ya está asignado a otro conductor")
     vehicle.conductor_id = user.id
@@ -132,30 +138,43 @@ def report_position(
             status_code=403,
             detail="No puedes reportar posición de un vehículo que no es tuyo. Activa el GPS primero.",
         )
+    if vehicle.simulado:
+        raise HTTPException(status_code=400, detail="La unidad de prueba reporta su posición sola")
     if vehicle.conductor_id is None:
         vehicle.conductor_id = user.id
 
-    db.add(
-        VehiclePosition(
-            vehicle_id=vehicle.id,
-            lat=body.lat,
-            lng=body.lng,
-            velocidad=body.velocidad,
-        )
-    )
-    vehicle.lat = body.lat
-    vehicle.lng = body.lng
-    vehicle.velocidad = body.velocidad
-    vehicle.estado = "ok"
-    vehicle.updated_at = utcnow()
-    db.add(vehicle)
-    zonas = check_zones(db, vehicle, body.lat, body.lng)
+    from app.detection import ingest_position
+
+    if vehicle.estado != "alert":
+        vehicle.estado = "ok"
+    res = ingest_position(db, vehicle, body.lat, body.lng, body.velocidad)
+    zonas = res["zonas"]
     return {
         "ok": True,
-        "zonas_alertadas": [z.nombre for z in zonas],
+        "zonas_alertadas": zonas,
+        "spoofing": res["spoofing"],
         "vehicle_id": vehicle.id,
         "lat": body.lat,
         "lng": body.lng,
         "velocidad": body.velocidad,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.get("/{vehicle_id}/events")
+def vehicle_events(vehicle_id: str, _user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """Historial del motor de detección (desvíos, spoofing, jamming, geocerca...) de las últimas 72 h."""
+    from datetime import timedelta
+
+    from app.models import VehicleEvent
+    from app.routers.simulator import event_out
+
+    _load_vehicle(db, vehicle_id)
+    since = utcnow() - timedelta(hours=72)
+    rows = db.scalars(
+        select(VehicleEvent)
+        .where(VehicleEvent.vehicle_id == vehicle_id, VehicleEvent.created_at >= since)
+        .order_by(VehicleEvent.created_at.desc())
+        .limit(100)
+    ).all()
+    return [event_out(e) for e in rows]

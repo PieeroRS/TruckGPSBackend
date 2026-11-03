@@ -12,6 +12,9 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("")
 def dashboard(_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.simulation import tick
+
+    tick(db)
     alerts = db.scalars(
         select(AiAlert).where(AiAlert.activa.is_(True)).order_by(AiAlert.created_at.desc())
     ).all()
