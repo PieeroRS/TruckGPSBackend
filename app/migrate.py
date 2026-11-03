@@ -11,6 +11,19 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
     "vehicles": {
         "rendimiento_km_gal": "FLOAT",
         "tanque_gal": "FLOAT",
+        "simulado": "BOOLEAN DEFAULT FALSE NOT NULL",
+    },
+    "ai_alerts": {
+        "tipo": "VARCHAR(30) DEFAULT 'manual' NOT NULL",
+        "origen": "VARCHAR(20) DEFAULT 'manual' NOT NULL",
+        "estado": "VARCHAR(20) DEFAULT 'activa' NOT NULL",
+        "vehicle_id": "VARCHAR(36)",
+        "nav_route_id": "VARCHAR(36)",
+        "lat": "FLOAT",
+        "lng": "FLOAT",
+        "payload": "JSON",
+        "historial": "JSON",
+        "updated_at": "TIMESTAMP",
     },
     "risk_zones": {
         "origen": "VARCHAR(20) DEFAULT 'usuario' NOT NULL",
@@ -18,6 +31,7 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
         "nivel": "VARCHAR(20)",
         "fuentes": "JSON",
         "periodo": "VARCHAR(60)",
+        "alerta_en": "VARCHAR(10) DEFAULT 'entrada' NOT NULL",
     },
 }
 

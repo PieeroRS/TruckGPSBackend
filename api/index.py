@@ -13,6 +13,10 @@ try:
     seed_if_empty(_db)
     _db.commit()
     load_official_zones(_db)
+    from app.simulation import ensure_simulation
+
+    ensure_simulation(_db)
+    _db.commit()
 except Exception:
     _db.rollback()
     raise

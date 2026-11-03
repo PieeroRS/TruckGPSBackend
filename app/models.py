@@ -47,6 +47,8 @@ class Vehicle(Base):
     # Rendimiento de referencia (km por galón) y capacidad del tanque, para el módulo de consumo.
     rendimiento_km_gal: Mapped[float | None] = mapped_column(Float)
     tanque_gal: Mapped[float | None] = mapped_column(Float)
+    # Unidad de prueba: su posición la genera el simulador (no un GPS real).
+    simulado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -141,7 +143,18 @@ class AiAlert(Base):
     icon: Mapped[str] = mapped_column(String(40), nullable=False, default="alert-triangle")
     placas_afectadas: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Motor de detección: tipo de anomalía, unidad, estado y acciones de respuesta.
+    tipo: Mapped[str] = mapped_column(String(30), nullable=False, default="manual")
+    origen: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")  # manual | motor | simulacion
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, default="activa")  # activa | en_atencion | resuelta | descartada
+    vehicle_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="SET NULL"))
+    nav_route_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("nav_routes.id", ondelete="SET NULL"))
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    historial: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class NavRoute(Base):
@@ -214,6 +227,8 @@ class RiskZone(Base):
     nivel: Mapped[str | None] = mapped_column(String(20))  # alto | muy_alto
     fuentes: Mapped[list | None] = mapped_column(JSON)  # [{"medio", "fecha", "url"}]
     periodo: Mapped[str | None] = mapped_column(String(60))
+    # "entrada": avisa al entrar (zona peligrosa). "salida": avisa al salir (geocerca de operación).
+    alerta_en: Mapped[str] = mapped_column(String(10), nullable=False, default="entrada")
     created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -246,3 +261,69 @@ class NotificationLog(Base):
     zone_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("risk_zones.id", ondelete="SET NULL"))
     incident_id: Mapped[str | None] = mapped_column(String(40), ForeignKey("incidents.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VehicleEvent(Base):
+    """Evento de telemetría detectado (desvío, spoofing, jamming, etc.). Es el historial del motor."""
+
+    __tablename__ = "vehicle_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    vehicle_id: Mapped[str] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False, index=True)
+    tipo: Mapped[str] = mapped_column(String(30), nullable=False)
+    severidad: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    descripcion: Mapped[str] = mapped_column(Text, nullable=False)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    datos: Mapped[dict | None] = mapped_column(JSON)
+    simulado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class DetectionState(Base):
+    """Estado del detector por vehículo (si está desviado, si perdió señal, etc.)."""
+
+    __tablename__ = "detection_states"
+
+    vehicle_id: Mapped[str] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="CASCADE"), primary_key=True)
+    clave: Mapped[str] = mapped_column(String(30), primary_key=True)
+    valor: Mapped[dict | None] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TrafficEvent(Base):
+    """Evento de tráfico (congestión, accidente, bloqueo) que afecta los tiempos de ruta."""
+
+    __tablename__ = "traffic_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    descripcion: Mapped[str] = mapped_column(String(200), nullable=False)
+    nivel: Mapped[str] = mapped_column(String(20), nullable=False, default="congestionado")  # moderado | congestionado | bloqueo
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    radio_m: Mapped[int] = mapped_column(Integer, nullable=False, default=400)
+    simulado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    expira_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SimState(Base):
+    """Estado del simulador de la unidad de prueba."""
+
+    __tablename__ = "sim_states"
+
+    vehicle_id: Mapped[str] = mapped_column(String(36), ForeignKey("vehicles.id", ondelete="CASCADE"), primary_key=True)
+    nav_route_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("nav_routes.id", ondelete="SET NULL"))
+    # Avance sobre la ruta: offset_m metros en anchor_at, luego avanza a velocidad_kmh.
+    anchor_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    offset_m: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    velocidad_kmh: Mapped[float] = mapped_column(Float, nullable=False, default=35.0)
+    ciclica: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    escenario: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
+    escenario_inicio: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escenario_fin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    escenario_datos: Mapped[dict | None] = mapped_column(JSON)
+    # Tras un salto intencional (reinicio, fin de escenario) no se evalúa spoofing en la siguiente posición.
+    saltar_chequeo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ultimo_registro: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

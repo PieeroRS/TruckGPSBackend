@@ -141,3 +141,30 @@ class RiskZoneIn(BaseModel):
     radio_m: int = Field(default=500, ge=50, le=20000)
     activa: bool = True
     notas: str | None = None
+    alerta_en: str | None = None
+
+
+class AlertActionIn(BaseModel):
+    codigo: str
+    nota: str | None = Field(default=None, max_length=500)
+
+
+class TrafficEventIn(BaseModel):
+    descripcion: str = Field(min_length=1, max_length=200)
+    nivel: str = "congestionado"
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    radio_m: int = Field(default=400, ge=50, le=5000)
+    duracion_min: int = Field(default=30, ge=1, le=720)
+
+
+class RoutePlanIn(BaseModel):
+    origin_lat: float
+    origin_lng: float
+    dest_lat: float
+    dest_lng: float
+
+
+class SimScenarioIn(BaseModel):
+    tipo: str
+    duracion_s: int | None = Field(default=None, ge=20, le=3600)

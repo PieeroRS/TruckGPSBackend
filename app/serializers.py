@@ -36,6 +36,7 @@ def vehicle_out(v: Vehicle) -> dict:
         "proxMant": v.prox_mantenimiento or "",
         "rendimientoKmGal": v.rendimiento_km_gal,
         "tanqueGal": v.tanque_gal,
+        "simulado": bool(v.simulado),
     }
 
 
@@ -76,14 +77,29 @@ def incident_out(inc: Incident) -> dict:
 
 
 def alert_out(row: AiAlert) -> dict:
+    from app.alert_actions import available_actions
+
+    payload = dict(row.payload or {})
     return {
         "id": row.id,
         "titulo": row.titulo,
         "descripcion": row.descripcion,
         "severidad": row.severidad,
         "icon": row.icon,
-        "tiempo": relative_time(row.created_at),
+        "tiempo": relative_time(row.updated_at or row.created_at),
+        "creado": iso(row.created_at),
+        "actualizado": iso(row.updated_at),
         "afecta": row.placas_afectadas or [],
+        "tipo": row.tipo or "manual",
+        "origen": row.origen or "manual",
+        "estado": row.estado or "activa",
+        "vehicleId": row.vehicle_id,
+        "navRouteId": row.nav_route_id,
+        "lat": row.lat,
+        "lng": row.lng,
+        "payload": payload,
+        "historial": row.historial or [],
+        "acciones": available_actions(row),
     }
 
 
