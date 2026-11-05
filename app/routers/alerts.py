@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.alert_actions import ACTIONS, CLOSED, ONE_SHOT, available_actions
 from app.auth import get_current_user, require_staff
 from app.database import get_db
-from app.detection import add_history, set_state
+from app.detection import SEV_LABEL, add_history, set_state
 from app.geo import path_length_m, point_at, project
 from app.models import AiAlert, Incident, IncidentEvent, NavRoute, User, Vehicle, utcnow
 from app.schemas import AiAlertIn, AlertActionIn
@@ -160,7 +160,7 @@ def _notify(db: Session, alert: AiAlert, vehicle: Vehicle | None, prefijo: str =
         Alert(
             tipo="motor",
             titulo=sim + prefijo + alert.titulo,
-            lineas=[alert.descripcion, f"Unidad: {vehicle.placa if vehicle else '—'} · Conductor: {conductor}", f"Severidad: {alert.severidad}"],
+            lineas=[alert.descripcion, f"Unidad: {vehicle.placa if vehicle else '—'} · Conductor: {conductor}", f"Severidad: {SEV_LABEL.get(alert.severidad, alert.severidad)}"],
             lat=alert.lat,
             lng=alert.lng,
             vehicle_id=vehicle.id if vehicle else None,

@@ -30,6 +30,7 @@ from app.models import (
 )
 
 SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
+SEV_LABEL = {"low": "baja", "medium": "media", "high": "alta"}
 LIMA = timezone(timedelta(hours=-5))
 
 SPOOF_MIN_JUMP_M = 2000
@@ -139,7 +140,7 @@ def _notify(db: Session, alert: AiAlert, vehicle: Vehicle) -> None:
         Alert(
             tipo="motor",
             titulo=prefijo + alert.titulo,
-            lineas=[alert.descripcion, f"Unidad: {vehicle.placa} · Conductor: {conductor}", f"Severidad: {alert.severidad}"],
+            lineas=[alert.descripcion, f"Unidad: {vehicle.placa} · Conductor: {conductor}", f"Severidad: {SEV_LABEL.get(alert.severidad, alert.severidad)}"],
             lat=alert.lat,
             lng=alert.lng,
             vehicle_id=vehicle.id,
@@ -189,7 +190,7 @@ def upsert_alert(
         if SEV_ORDER.get(severidad, 0) > SEV_ORDER.get(alert.severidad, 0):
             alert.severidad = severidad
             escalated = severidad == "high"
-            add_history(alert, "escalada", "Escalada", f"Severidad elevada a {severidad}: {descripcion}")
+            add_history(alert, "escalada", "Escalada", f"Severidad elevada a {SEV_LABEL.get(severidad, severidad)}: {descripcion}")
         alert.titulo = titulo
         alert.descripcion = descripcion
         alert.lat, alert.lng = lat, lng
