@@ -8,12 +8,17 @@ from sqlalchemy.engine import Engine
 
 # tabla -> {columna: tipo SQL}
 NEW_COLUMNS: dict[str, dict[str, str]] = {
+    "users": {
+        "telefono": "VARCHAR(30)",
+        "licencia": "VARCHAR(30)",
+    },
     "vehicles": {
         "rendimiento_km_gal": "FLOAT",
         "tanque_gal": "FLOAT",
         "simulado": "BOOLEAN DEFAULT FALSE NOT NULL",
         "precision_m": "FLOAT",
         "ultima_posicion_at": "TIMESTAMP",
+        "fuente_posicion": "VARCHAR(10)",
     },
     "vehicle_positions": {
         "precision_m": "FLOAT",

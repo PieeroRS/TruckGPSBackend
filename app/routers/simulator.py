@@ -38,7 +38,8 @@ def traffic_out(t: TrafficEvent) -> dict:
 
 
 def _snapshot(db: Session) -> dict:
-    from app.simulation import GEOFENCE_CENTER, GEOFENCE_RADIUS_M, SCENARIOS, sim_snapshot
+    from app.detection import umbrales
+    from app.simulation import GEOFENCE_CENTER, GEOFENCE_RADIUS_M, scenarios_for, sim_snapshot
 
     snap = sim_snapshot(db)
     v, st = snap["vehicle"], snap["state"]
@@ -56,7 +57,8 @@ def _snapshot(db: Session) -> dict:
         "senalPerdida": snap["senal_perdida"],
         "desviado": snap["desviado"],
         "geocerca": {"lat": GEOFENCE_CENTER[0], "lng": GEOFENCE_CENTER[1], "radioM": GEOFENCE_RADIUS_M},
-        "escenarios": SCENARIOS,
+        "escenarios": scenarios_for(db),
+        "umbrales": umbrales(db),
         "eventos": [event_out(e) for e in snap["eventos"]],
         "alertas": [alert_out(a) for a in alerts],
         "trafico": [traffic_out(t) for t in traffic],

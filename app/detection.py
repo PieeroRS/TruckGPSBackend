@@ -3,6 +3,8 @@
 Reglas (para vehículos reales y para la unidad simulada):
 - Spoofing: salto de posición imposible (> 2 km a más de 200 km/h).
 - Desvío de ruta: más de 250 m fuera de la ruta activa; se escala a alta al superar 1 km.
+- Exceso de velocidad: sobre el límite configurado (90 km/h por defecto); alta desde límite + margen.
+Los límites se configuran en Configuración → Umbrales de alerta (app_settings.umbrales).
 - Pérdida de señal (posible jamming): una unidad en ruta que circulaba deja de reportar.
 - Detención en zona de riesgo: más de 2 min detenida dentro de una zona peligrosa.
 - Salida de geocerca: se maneja en routers/zones.check_zones.
@@ -56,7 +58,18 @@ EVENT_LABELS = {
     "jamming": "pérdida de señal GPS",
     "parada_riesgo": "detención en zona de riesgo",
     "salida_zona": "salida de geocerca",
+    "exceso_velocidad": "exceso de velocidad",
 }
+
+
+def umbrales(db: Session) -> dict:
+    from app.app_settings import get_umbrales
+
+    return get_umbrales(db)
+
+
+def fmt_m(m: float) -> str:
+    return f"{m / 1000:.1f} km".replace(".0 km", " km") if m >= 1000 else f"{m:.0f} m"
 
 
 def aware(dt: datetime | None) -> datetime | None:
@@ -278,7 +291,9 @@ def check_signal_recovered(db: Session, vehicle: Vehicle, lat: float, lng: float
     set_state(db, vehicle.id, "senal", None)
 
 
-def check_route_deviation(db: Session, vehicle: Vehicle, lat: float, lng: float) -> None:
+def check_route_deviation(db: Session, vehicle: Vehicle, lat: float, lng: float, u: dict | None = None) -> None:
+    u = u or umbrales(db)
+    lim, lim_alto = u["desvio_m"], u["desvio_alto_m"]
     route = active_route(db, vehicle)
     geom = route_geometry(db, vehicle, route)
     if not route or not geom:
@@ -289,17 +304,17 @@ def check_route_deviation(db: Session, vehicle: Vehicle, lat: float, lng: float)
         return
     st = get_state(db, vehicle.id, "desvio")
     dist = pr.distance_m
-    if dist > DEVIATION_M:
-        sev = "high" if dist >= DEVIATION_HIGH_M else "medium"
+    if dist > lim:
+        sev = "high" if dist >= lim_alto else "medium"
         desc = (
             f"{vehicle.placa} está a {dist:,.0f} m de su ruta «{route.route_label}». "
-            + ("Supera 1 km: posible cambio de destino no autorizado." if sev == "high" else "Se salió del recorrido planificado.")
+            + (f"Supera {fmt_m(lim_alto)}: posible cambio de destino no autorizado." if sev == "high" else "Se salió del recorrido planificado.")
         )
         first = not st.get("activo")
-        crossed = st.get("max_m", 0) < DEVIATION_HIGH_M <= dist
+        crossed = st.get("max_m", 0) < lim_alto <= dist
         salida = st.get("salida") or [round(pr.lat, 6), round(pr.lng, 6)]
         if first:
-            record_event(db, vehicle, "desvio", sev, desc, lat, lng, {"distancia_m": round(dist), "ruta": route.route_label})
+            record_event(db, vehicle, "desvio", sev, desc, lat, lng, {"distancia_m": round(dist), "ruta": route.route_label, "umbral_m": lim})
         if first or crossed or st.get("sev") != sev:
             upsert_alert(
                 db,
@@ -316,7 +331,7 @@ def check_route_deviation(db: Session, vehicle: Vehicle, lat: float, lng: float)
             )
         set_state(db, vehicle.id, "desvio", {"activo": True, "max_m": max(dist, st.get("max_m", 0)), "sev": sev, "salida": salida})
     else:
-        if st.get("activo") and dist < BACK_ON_ROUTE_M:
+        if st.get("activo") and dist < min(BACK_ON_ROUTE_M, lim * 0.6):
             record_event(db, vehicle, "regreso_ruta", "low", f"{vehicle.placa} volvió a su ruta.", lat, lng)
             alert = active_alert(db, vehicle.id, "desvio")
             if alert:
@@ -347,6 +362,9 @@ def check_arrival(db: Session, vehicle: Vehicle, lat: float, lng: float, now: da
     route.status = "completada"
     route.progress_pct = 100
     route.completed_at = now
+    from app.history import record_completed_route
+
+    record_completed_route(db, route)
     record_event(db, vehicle, "ruta_completada", "low", f"{vehicle.placa} llegó a su destino «{route.dest_name}».", lat, lng, {"ruta": route.route_label})
     alert = active_alert(db, vehicle.id, "desvio")
     if alert:
@@ -355,7 +373,8 @@ def check_arrival(db: Session, vehicle: Vehicle, lat: float, lng: float, now: da
     return route
 
 
-def check_stop_in_risk_zone(db: Session, vehicle: Vehicle, speed: float, lat: float, lng: float, now: datetime) -> None:
+def check_stop_in_risk_zone(db: Session, vehicle: Vehicle, speed: float, lat: float, lng: float, now: datetime, u: dict | None = None) -> None:
+    u = u or umbrales(db)
     inside_ids = [
         s.zone_id
         for s in db.scalars(select(ZoneState).where(ZoneState.vehicle_id == vehicle.id, ZoneState.inside.is_(True))).all()
@@ -374,7 +393,7 @@ def check_stop_in_risk_zone(db: Session, vehicle: Vehicle, speed: float, lat: fl
         set_state(db, vehicle.id, "parada", {"zone": zone.id, "desde": now.isoformat(), "alertada": False})
         return
     secs = (now - aware(datetime.fromisoformat(st["desde"]))).total_seconds()
-    if secs >= STOP_IN_RISK_S and not st.get("alertada"):
+    if secs >= u["parada_riesgo_min"] * 60 and not st.get("alertada"):
         desc = f"{vehicle.placa} lleva {secs / 60:.0f} min detenida dentro de «{zone.nombre}»."
         record_event(db, vehicle, "parada_riesgo", "medium", desc, lat, lng, {"zona": zone.nombre})
         upsert_alert(db, vehicle, "parada_riesgo", "medium", f"Detención en zona de riesgo: {vehicle.placa}", desc, lat, lng, {"zona": zone.nombre}, icon="map-pin")
@@ -424,6 +443,7 @@ def evaluate_sabotage(db: Session, vehicle: Vehicle) -> AiAlert | None:
 def check_signal_loss(db: Session, now: datetime | None = None) -> int:
     """Unidades en ruta que circulaban y dejaron de reportar posición. Devuelve cuántas alertó."""
     now = now or utcnow()
+    u = umbrales(db)
     last_rows = db.execute(
         select(VehiclePosition.vehicle_id, func.max(VehiclePosition.recorded_at)).group_by(VehiclePosition.vehicle_id)
     ).all()
@@ -433,7 +453,7 @@ def check_signal_loss(db: Session, now: datetime | None = None) -> int:
         if vehicle is None:
             continue
         age = (now - aware(last_at)).total_seconds()
-        threshold = SIGNAL_LOSS_S_SIM if vehicle.simulado else SIGNAL_LOSS_S_REAL
+        threshold = SIGNAL_LOSS_S_SIM if vehicle.simulado else u["sin_senal_s"]
         if age < threshold or age > SIGNAL_LOSS_MAX_AGE_S:
             continue
         if get_state(db, vehicle.id, "senal").get("perdida"):
@@ -468,6 +488,48 @@ def check_signal_loss(db: Session, now: datetime | None = None) -> int:
     return count
 
 
+def check_speeding(db: Session, vehicle: Vehicle, speed: float, lat: float, lng: float, u: dict | None = None) -> AiAlert | None:
+    """Velocidad sobre el límite configurado. Media al superarlo; alta desde límite + margen."""
+    u = u or umbrales(db)
+    limite = u["velocidad_max_kmh"]
+    alto = limite + u["velocidad_margen_alta_kmh"]
+    st = get_state(db, vehicle.id, "velocidad")
+    if speed > limite:
+        sev = "high" if speed >= alto else "medium"
+        maxima = max(speed, st.get("max_kmh", 0))
+        desc = (
+            f"{vehicle.placa} circula a {speed:.0f} km/h; el límite configurado es {limite} km/h "
+            f"(+{speed - limite:.0f} km/h). Máxima registrada en este tramo: {maxima:.0f} km/h."
+        )
+        first = not st.get("activo")
+        crossed = st.get("sev") != "high" and sev == "high"
+        alert = None
+        if first:
+            record_event(db, vehicle, "exceso_velocidad", sev, desc, lat, lng, {"velocidad_kmh": round(speed), "limite_kmh": limite})
+        if first or crossed:
+            alert = upsert_alert(
+                db,
+                vehicle,
+                "exceso_velocidad",
+                sev,
+                f"Exceso de velocidad: {vehicle.placa}",
+                desc,
+                lat,
+                lng,
+                {"velocidad_kmh": round(speed), "limite_kmh": limite, "alta_desde_kmh": alto, "max_kmh": round(maxima)},
+                icon="gauge",
+            )
+        set_state(db, vehicle.id, "velocidad", {"activo": True, "max_kmh": maxima, "sev": "high" if crossed or st.get("sev") == "high" else sev})
+        return alert
+    if st.get("activo") and speed <= limite - 3:
+        record_event(db, vehicle, "velocidad_normal", "low", f"{vehicle.placa} volvió a {speed:.0f} km/h (límite {limite} km/h).", lat, lng)
+        alert = active_alert(db, vehicle.id, "exceso_velocidad")
+        if alert:
+            add_history(alert, "velocidad_normal", "Velocidad normal", f"Bajó a {speed:.0f} km/h; máxima registrada {st.get('max_kmh', 0):.0f} km/h.")
+        set_state(db, vehicle.id, "velocidad", None)
+    return None
+
+
 def ingest_position(
     db: Session,
     vehicle: Vehicle,
@@ -489,6 +551,7 @@ def ingest_position(
     vehicle.lat, vehicle.lng, vehicle.velocidad = lat, lng, int(speed)
     vehicle.precision_m = precision_m
     vehicle.ultima_posicion_at = now
+    vehicle.fuente_posicion = "sim" if vehicle.simulado else "gps"
     vehicle.updated_at = now
     db.add(vehicle)
     db.flush()
@@ -498,14 +561,16 @@ def ingest_position(
         evaluate_sabotage(db, vehicle)
         return {"spoofing": True, "zonas": [], "aproximada": False, "llego": None}
     check_signal_recovered(db, vehicle, lat, lng, now)
+    u = umbrales(db)
+    check_speeding(db, vehicle, speed, lat, lng, u)
     aproximada = precision_m is not None and precision_m > COARSE_RULES_M
     llego = None
     if not aproximada:
-        check_route_deviation(db, vehicle, lat, lng)
+        check_route_deviation(db, vehicle, lat, lng, u)
         llego = check_arrival(db, vehicle, lat, lng, now, precision_m)
     zonas = check_zones(db, vehicle, lat, lng) if precision_m is None or precision_m <= COARSE_ZONES_M else []
     if not aproximada:
-        check_stop_in_risk_zone(db, vehicle, speed, lat, lng, now)
+        check_stop_in_risk_zone(db, vehicle, speed, lat, lng, now, u)
     if get_state(db, vehicle.id, "desvio").get("activo"):
         evaluate_sabotage(db, vehicle)
     return {

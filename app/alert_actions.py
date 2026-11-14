@@ -26,6 +26,7 @@ RECOMMENDED: dict[str, list[str]] = {
     "jamming": ["activar_protocolo", "contactar_conductor", "crear_incidencia"],
     "salida_zona": ["contactar_conductor", "crear_incidencia", "notificar_supervisor"],
     "parada_riesgo": ["contactar_conductor", "crear_incidencia"],
+    "exceso_velocidad": ["contactar_conductor", "crear_incidencia", "notificar_supervisor"],
     "trafico": ["aplicar_ruta_alternativa", "mantener_ruta", "contactar_conductor"],
     "sabotaje": ["activar_protocolo", "contactar_conductor", "crear_incidencia", "notificar_supervisor"],
 }

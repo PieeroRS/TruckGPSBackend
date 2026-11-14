@@ -56,8 +56,15 @@ def plan_route(body: RoutePlanIn, _user: User = Depends(get_current_user), db: S
     except RoutingError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     factor, franja = lima_traffic_factor()
+    from app.history import predict
+
+    historico = predict(db, (body.origin_lat, body.origin_lng), (body.dest_lat, body.dest_lng), rutas[0]["duration_min"]) if rutas else None
+    if historico and historico.get("viajes"):
+        for r in rutas:
+            r["duration_pred_min"] = round(r["duration_min"] * historico["ratio"], 1)
     return {
         "rutas": rutas,
+        "historico": historico,
         "franja": franja,
         "factorHora": factor,
         "nota": "Tiempo con tráfico estimado según la hora en Lima y los eventos de tráfico registrados; OSRM no tiene tráfico en vivo.",
@@ -144,6 +151,9 @@ def update_route(
     if body.status == "completada":
         route.completed_at = utcnow()
         route.progress_pct = 100
+        from app.history import record_completed_route
+
+        record_completed_route(db, route)
     if route.vehicle_id and body.status in ("asignada", "en-curso"):
         vehicle = db.get(Vehicle, route.vehicle_id)
         if vehicle:

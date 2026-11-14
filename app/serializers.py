@@ -15,6 +15,8 @@ def profile_out(user: User, include_created: bool = False) -> dict:
         "full_name": user.full_name,
         "email": user.email,
         "role": user.role,
+        "telefono": user.telefono,
+        "licencia": user.licencia,
     }
     if include_created:
         data["created_at"] = iso(user.created_at)
@@ -40,6 +42,7 @@ def vehicle_out(v: Vehicle) -> dict:
         # Calidad del dato: sin ultimaPosicion, lat/lng son una referencia (no un GPS).
         "precisionM": round(v.precision_m) if v.precision_m is not None else None,
         "ultimaPosicion": iso(v.ultima_posicion_at),
+        "fuentePosicion": v.fuente_posicion,
     }
 
 

@@ -78,7 +78,7 @@ def seed_if_empty(db: Session) -> None:
             prox_mantenimiento="2026-05-09",
             lat=-11.9404,
             lng=-76.2356,
-            velocidad=12,
+            velocidad=40,
             rendimiento_km_gal=8.5,
             tanque_gal=120,
         ),

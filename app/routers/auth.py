@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,6 +45,16 @@ def update_me(body: ProfileUpdateIn, user: User = Depends(get_current_user), db:
         if not name:
             raise HTTPException(status_code=400, detail="El nombre no puede estar vacío")
         user.full_name = name
+    if body.telefono is not None:
+        tel = body.telefono.strip()
+        if tel and not re.fullmatch(r"\+?[0-9 ]{6,20}", tel):
+            raise HTTPException(status_code=400, detail="Teléfono inválido: usa solo números (opcional +51)")
+        user.telefono = tel or None
+    if body.licencia is not None:
+        lic = body.licencia.strip().upper()
+        if lic and not re.fullmatch(r"[A-Z0-9-]{5,15}", lic):
+            raise HTTPException(status_code=400, detail="N.° de licencia inválido (5 a 15 letras o números)")
+        user.licencia = lic or None
     db.add(user)
     db.flush()
     return profile_out(user)
