@@ -53,7 +53,7 @@ SCENARIOS = [
         "titulo": "Desvío de ruta",
         "casos": ["CP011", "CP024"],
         "duracion_s": 240,
-        "descripcion": "La unidad abandona su ruta activa a 60 km/h. A los ~15 s está a más de 250 m (alerta media) y al pasar 1 km se escala a alta. Prueba «Recalcular ruta» en la alerta.",
+        "descripcion": "La unidad abandona su ruta activa a 60 km/h. Al pasar {desvio} se alerta (media) y al pasar {desvio_alto} se escala a alta. Prueba «Recalcular ruta» en la alerta.",
     },
     {
         "tipo": "spoofing",
@@ -68,6 +68,13 @@ SCENARIOS = [
         "casos": ["CP013"],
         "duracion_s": 180,
         "descripcion": "La unidad deja de reportar posición mientras circula. A los 45 s sin señal se alerta posible inhibidor; al volver la señal queda registrado.",
+    },
+    {
+        "tipo": "exceso_velocidad",
+        "titulo": "Exceso de velocidad",
+        "casos": ["CP014"],
+        "duracion_s": 120,
+        "descripcion": "La unidad acelera a ~{vel_prueba} km/h sobre su ruta. Supera el límite de {limite} km/h (alerta media) y llega a la zona de alta ({alto} km/h o más). Al terminar baja la velocidad y queda registrado.",
     },
     {
         "tipo": "salida_zona",
@@ -92,6 +99,25 @@ SCENARIOS = [
     },
 ]
 SCENARIO_BY_TYPE = {s["tipo"]: s for s in SCENARIOS}
+
+
+def speed_test_kmh(u: dict) -> int:
+    return int(u["velocidad_max_kmh"] + u["velocidad_margen_alta_kmh"] + 8)
+
+
+def scenarios_for(db: Session) -> list[dict]:
+    """Escenarios con los umbrales configurados en el texto."""
+    from app.detection import fmt_m, umbrales
+
+    u = umbrales(db)
+    vals = {
+        "desvio": fmt_m(u["desvio_m"]),
+        "desvio_alto": fmt_m(u["desvio_alto_m"]),
+        "limite": u["velocidad_max_kmh"],
+        "alto": u["velocidad_max_kmh"] + u["velocidad_margen_alta_kmh"],
+        "vel_prueba": speed_test_kmh(u),
+    }
+    return [{**sc, "descripcion": sc["descripcion"].format(**vals)} for sc in SCENARIOS]
 
 _last_tick = 0.0
 
@@ -229,6 +255,12 @@ def current_position(db: Session, st: SimState, now: datetime) -> dict:
         return {**base, "lat": lat, "lng": lng, "report": True}
     if esc in ("jamming", "sabotaje"):
         return {**base, "report": False}
+    if esc == "exceso_velocidad":
+        # Se acerca primero desde la velocidad previa: así la alerta pasa de media a alta.
+        objetivo = datos.get("kmh", 120)
+        previa = datos.get("vel_previa", 35)
+        vel = previa + (objetivo - previa) * min(1.0, t / 20)
+        return {**base, "vel": int(round(vel + (2 if int(t / 6) % 2 else -1))), "report": True}
     if esc == "retorno":
         puente = datos["puente"]
         largo = path_length_m(puente)
@@ -251,13 +283,17 @@ def end_scenario(db: Session, st: SimState, now: datetime, motivo: str = "fin") 
     if st.escenario == "normal":
         return
     v = db.get(Vehicle, st.vehicle_id)
+    if st.escenario == "exceso_velocidad":
+        along = base_position(db, st, now)["along"]
+        st.velocidad_kmh = (st.escenario_datos or {}).get("vel_previa", LOOP_SPEED_KMH)
+        _reanchor(st, along, now)
     if st.escenario == "retorno":
         # Retoma la ruta en el punto donde se unió el tramo de retorno.
         rejoin = (st.escenario_datos or {}).get("rejoin_m", 0.0)
         _reanchor(st, rejoin, now)
     elif st.escenario in ("salida_zona", "desvio", "spoofing"):
         st.saltar_chequeo = True  # vuelve a su lugar en la ruta sin falsa alarma de spoofing
-    if v and st.escenario in ("salida_zona", "desvio", "spoofing", "jamming", "sabotaje"):
+    if v and st.escenario in ("salida_zona", "desvio", "spoofing", "jamming", "sabotaje", "exceso_velocidad"):
         record_event(db, v, "simulacion", "low", f"Fin del escenario «{SCENARIO_BY_TYPE.get(st.escenario, {}).get('titulo', st.escenario)}» ({motivo}).")
     st.escenario = "normal"
     st.escenario_inicio = None
@@ -316,6 +352,15 @@ def start_scenario(db: Session, tipo: str, duracion_s: int | None = None, now: d
         info = "Las posiciones aparecerán ~35 km al sur (cerca de Lurín/Pachacámac)."
     elif tipo == "jamming":
         info = "Sin reportes; la alerta llega a los 45 s."
+    elif tipo == "exceso_velocidad":
+        from app.detection import umbrales
+
+        u = umbrales(db)
+        kmh = speed_test_kmh(u)
+        datos = {"kmh": kmh, "vel_previa": st.velocidad_kmh}
+        _reanchor(st, base["along"], now)
+        st.velocidad_kmh = float(kmh)
+        info = f"Acelera hasta ~{kmh} km/h (límite configurado: {u['velocidad_max_kmh']} km/h)."
     elif tipo == "sabotaje":
         n = _generate_history(db, v, now)
         info = f"Se generaron {n} eventos de historial; se corta la señal GPS y la alerta de sabotaje llega con la de jamming (~45 s)."
@@ -349,7 +394,7 @@ def reset_simulation(db: Session, now: datetime | None = None) -> None:
     st.anchor_at = EPOCH
     st.offset_m = 0.0
     st.saltar_chequeo = True
-    for clave in ("desvio", "senal", "parada"):
+    for clave in ("desvio", "senal", "parada", "velocidad"):
         set_state(db, v.id, clave, None)
     # Historial limpio para que una prueba no contamine la siguiente (p. ej. el puntaje de sabotaje).
     from sqlalchemy import delete
@@ -576,6 +621,9 @@ def advance(db: Session, v: Vehicle, st: SimState, now: datetime, force: bool = 
         pos["route"].status = "completada"
         pos["route"].progress_pct = 100
         pos["route"].completed_at = now
+        from app.history import record_completed_route
+
+        record_completed_route(db, pos["route"])
         record_event(db, v, "ruta_completada", "low", f"{v.placa} completó la ruta «{pos['route'].route_label}».")
         back_to_loop(db, v, now)
         pos = current_position(db, st, now)
@@ -624,6 +672,9 @@ def tick(db: Session, force: bool = False) -> None:
             check_signal_loss(db, now)
     except Exception:  # noqa: BLE001 - la simulación nunca debe romper la consulta principal
         log.exception("Error en la simulación")
+    from app.demo_fleet import tick as demo_tick
+
+    demo_tick(db, now)
 
 
 def sim_snapshot(db: Session) -> dict:

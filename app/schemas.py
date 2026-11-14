@@ -47,6 +47,8 @@ class TokenOut(BaseModel):
 class ProfileUpdateIn(BaseModel):
     full_name: str | None = None
     role: str | None = None
+    telefono: str | None = None
+    licencia: str | None = None
 
 
 class CreateUserIn(BaseModel):

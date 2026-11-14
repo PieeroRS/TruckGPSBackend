@@ -28,7 +28,7 @@ class RoutingError(RuntimeError):
     pass
 
 
-def osrm_routes(points: list[tuple[float, float]], alternatives: int = 0) -> list[dict]:
+def osrm_routes(points: list[tuple[float, float]], alternatives: int = 0, timeout: float = 8) -> list[dict]:
     """Rutas entre puntos [(lat, lng), ...]. Cada una: distance_km, duration_min, geometry [[lat,lng]]."""
     coords = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in points)
     params = {"overview": "full", "geometries": "geojson"}
@@ -37,7 +37,7 @@ def osrm_routes(points: list[tuple[float, float]], alternatives: int = 0) -> lis
     url = OSRM_URL + coords + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read())
     except Exception as exc:  # noqa: BLE001
         raise RoutingError("No se pudo conectar con el servicio de rutas (OSRM)") from exc

@@ -201,3 +201,61 @@ def vehicle_events(vehicle_id: str, _user: User = Depends(require_staff), db: Se
         .limit(100)
     ).all()
     return [event_out(e) for e in rows]
+
+
+@router.get("/{vehicle_id}/recorrido")
+def vehicle_track(
+    vehicle_id: str,
+    minutos: int = 30,
+    _user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ruta recorrida en los últimos minutos (para dibujarla en el Mapa en Vivo)."""
+    from datetime import timedelta
+
+    from app.demo_fleet import is_demo_active, track
+
+    vehicle = _load_vehicle(db, vehicle_id)
+    minutos = max(5, min(minutos, 360))
+    now = utcnow()
+    if is_demo_active(vehicle, now):
+        return {"fuente": "demo", "minutos": minutos, "puntos": track(db, vehicle.placa, minutos, now)}
+    rows = db.scalars(
+        select(VehiclePosition)
+        .where(VehiclePosition.vehicle_id == vehicle_id, VehiclePosition.recorded_at >= now - timedelta(minutes=minutos))
+        .order_by(VehiclePosition.recorded_at)
+        .limit(2000)
+    ).all()
+    puntos = [
+        {"lat": p.lat, "lng": p.lng, "velocidad": p.velocidad, "t": p.recorded_at.isoformat()}
+        for p in rows
+        if p.precision_m is None or p.precision_m <= 300
+    ]
+    fuente = "sim" if vehicle.simulado else "gps"
+    return {"fuente": fuente, "minutos": minutos, "puntos": puntos}
+
+
+@router.patch("/{vehicle_id}/odometro")
+def update_odometer(vehicle_id: str, body: dict, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """El conductor actualiza el kilometraje de su unidad desde Mi perfil."""
+    vehicle = _load_vehicle(db, vehicle_id)
+    if vehicle.conductor_id != user.id and not is_staff(user):
+        raise HTTPException(status_code=403, detail="Solo puedes actualizar la unidad que tienes asignada")
+    try:
+        km = int(body.get("kilometraje"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Kilometraje inválido") from exc
+    if km < vehicle.kilometraje:
+        raise HTTPException(status_code=400, detail=f"El kilometraje no puede ser menor al registrado ({vehicle.kilometraje:,} km)")
+    if km > vehicle.kilometraje + 20000:
+        raise HTTPException(status_code=400, detail="El kilometraje es demasiado alto; revisa el número")
+    vehicle.kilometraje = km
+    vehicle.updated_at = utcnow()
+    db.flush()
+    return vehicle_out(vehicle)
+
+
+@router.get("/mia")
+def my_vehicle(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    v = db.scalar(select(Vehicle).options(joinedload(Vehicle.driver)).where(Vehicle.conductor_id == user.id))
+    return vehicle_out(v) if v else None

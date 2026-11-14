@@ -25,6 +25,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="conductor")
+    telefono: Mapped[str | None] = mapped_column(String(30))
+    licencia: Mapped[str | None] = mapped_column(String(30))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     vehicles: Mapped[list[Vehicle]] = relationship(back_populates="driver")
@@ -52,6 +54,8 @@ class Vehicle(Base):
     # Precisión (radio en metros) del último reporte y cuándo llegó. Sin reporte = posición de referencia.
     precision_m: Mapped[float | None] = mapped_column(Float)
     ultima_posicion_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # De dónde viene la última posición: gps (celular/equipo) | sim (unidad de prueba) | demo (recorrido de demostración).
+    fuente_posicion: Mapped[str | None] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -331,3 +335,33 @@ class SimState(Base):
     # Tras un salto intencional (reinicio, fin de escenario) no se evalúa spoofing en la siguiente posición.
     saltar_chequeo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ultimo_registro: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AppSetting(Base):
+    """Configuración editable desde la app (umbrales de alerta, interfaz por rol, datos de flota)."""
+
+    __tablename__ = "app_settings"
+
+    clave: Mapped[str] = mapped_column(String(60), primary_key=True)
+    valor: Mapped[dict | None] = mapped_column(JSON)
+    updated_by: Mapped[str | None] = mapped_column(String(200))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class RouteHistory(Base):
+    """Viaje completado de un corredor: base para las predicciones de tiempo en Rutas."""
+
+    __tablename__ = "route_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    corredor: Mapped[str] = mapped_column(String(120), nullable=False)
+    origin_lat: Mapped[float] = mapped_column(Float, nullable=False)
+    origin_lng: Mapped[float] = mapped_column(Float, nullable=False)
+    dest_lat: Mapped[float] = mapped_column(Float, nullable=False)
+    dest_lng: Mapped[float] = mapped_column(Float, nullable=False)
+    distance_km: Mapped[float] = mapped_column(Float, nullable=False)
+    duracion_plan_min: Mapped[float] = mapped_column(Float, nullable=False)  # tiempo a flujo libre (OSRM)
+    duracion_real_min: Mapped[float] = mapped_column(Float, nullable=False)
+    placa: Mapped[str | None] = mapped_column(String(20))
+    fuente: Mapped[str] = mapped_column(String(20), nullable=False, default="registro")  # registro | ruta
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
