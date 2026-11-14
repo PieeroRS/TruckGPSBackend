@@ -11,8 +11,12 @@ class Base(DeclarativeBase):
     pass
 
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args, future=True)
+IS_SQLITE = settings.database_url.startswith("sqlite")
+connect_args = {"check_same_thread": False} if IS_SQLITE else {}
+# En Postgres (Neon) las funciones serverless abren y reusan pocas conexiones;
+# pre_ping evita usar una conexión que el servidor ya cerró por inactividad.
+pool_kwargs = {} if IS_SQLITE else {"pool_pre_ping": True, "pool_size": 3, "max_overflow": 2, "pool_recycle": 300}
+engine = create_engine(settings.database_url, connect_args=connect_args, future=True, **pool_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 

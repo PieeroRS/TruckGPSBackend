@@ -12,8 +12,30 @@ from app.official_zones import load_official_zones
 from app.seed import seed_if_empty
 
 
+STARTUP_LOCK = 727001
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Con Postgres varias instancias pueden arrancar a la vez: un candado evita
+    # que dos creen las tablas o siembren los datos al mismo tiempo.
+    from sqlalchemy import text
+
+    from app.database import IS_SQLITE
+
+    lock_conn = None if IS_SQLITE else engine.connect()
+    if lock_conn is not None:
+        lock_conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": STARTUP_LOCK})
+    try:
+        _startup()
+    finally:
+        if lock_conn is not None:
+            lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": STARTUP_LOCK})
+            lock_conn.close()
+    yield
+
+
+def _startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_columns(engine)
     db = SessionLocal()
@@ -32,7 +54,6 @@ async def lifespan(_app: FastAPI):
         raise
     finally:
         db.close()
-    yield
 
 
 app = FastAPI(title="TruckGPS API", version="1.0.0", lifespan=lifespan)
