@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user, is_staff, require_staff
 from app.database import get_db
 from app.models import Incident, User, Vehicle, VehiclePosition, utcnow
-from app.schemas import PositionIn, VehicleUpsertIn
+from app.schemas import PositionIn, VehicleUpsertIn, PositionBatchIn
 from app.serializers import vehicle_option_out, vehicle_out
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
@@ -182,6 +182,63 @@ def report_position(
         "velocidad": body.velocidad,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.post("/{vehicle_id}/positions/lote")
+def report_positions_batch(
+    vehicle_id: str,
+    body: PositionBatchIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Posiciones que el celular guardó sin señal. Completan el recorrido con su hora real.
+
+    No disparan alertas (son lecturas pasadas); solo la más reciente actualiza la
+    posición de la unidad si es más nueva que la que ya se tiene.
+    """
+    vehicle = _load_vehicle(db, vehicle_id)
+    if vehicle.conductor_id != user.id and not is_staff(user):
+        raise HTTPException(status_code=403, detail="No puedes reportar posición de un vehículo que no es tuyo.")
+    if vehicle.simulado:
+        raise HTTPException(status_code=400, detail="La unidad de prueba reporta su posición sola")
+
+    from app.detection import aware
+
+    now = utcnow()
+    validas = [p for p in body.posiciones if now - timedelta(hours=72) <= aware(p.t) <= now + timedelta(minutes=2)]
+    descartadas = len(body.posiciones) - len(validas)
+    if not validas:
+        return {"ok": True, "guardadas": 0, "duplicadas": 0, "descartadas": descartadas}
+    validas.sort(key=lambda p: aware(p.t))
+    desde, hasta = aware(validas[0].t), aware(validas[-1].t)
+    ya = {
+        int(aware(t).timestamp())
+        for t in db.scalars(
+            select(VehiclePosition.recorded_at).where(
+                VehiclePosition.vehicle_id == vehicle.id,
+                VehiclePosition.recorded_at >= desde - timedelta(seconds=1),
+                VehiclePosition.recorded_at <= hasta + timedelta(seconds=1),
+            )
+        ).all()
+    }
+    guardadas = 0
+    for p in validas:
+        seg = int(aware(p.t).timestamp())
+        if seg in ya:
+            continue
+        ya.add(seg)
+        db.add(VehiclePosition(vehicle_id=vehicle.id, lat=p.lat, lng=p.lng, velocidad=p.velocidad, precision_m=p.precision_m, recorded_at=aware(p.t)))
+        guardadas += 1
+    ultima = validas[-1]
+    last_at = aware(vehicle.ultima_posicion_at)
+    if last_at is None or aware(ultima.t) > last_at:
+        vehicle.lat, vehicle.lng, vehicle.velocidad = ultima.lat, ultima.lng, ultima.velocidad
+        vehicle.precision_m = ultima.precision_m
+        vehicle.ultima_posicion_at = aware(ultima.t)
+        vehicle.fuente_posicion = "gps"
+        vehicle.updated_at = now
+        db.add(vehicle)
+    return {"ok": True, "guardadas": guardadas, "duplicadas": len(validas) - guardadas, "descartadas": descartadas}
 
 
 @router.get("/{vehicle_id}/events")

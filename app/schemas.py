@@ -77,6 +77,15 @@ class PositionIn(BaseModel):
     precision_m: float | None = Field(default=None, ge=0, le=100000)
 
 
+class PositionBatchItem(PositionIn):
+    # Hora en que el celular tomó la lectura (se guardó sin señal y se envía después).
+    t: datetime
+
+
+class PositionBatchIn(BaseModel):
+    posiciones: list[PositionBatchItem] = Field(min_length=1, max_length=600)
+
+
 class IncidentStatusIn(BaseModel):
     estado: str
     notas: str | None = None

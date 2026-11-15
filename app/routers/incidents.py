@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -53,6 +54,8 @@ async def create_incident(
     es_panico: str = Form(default="false"),
     photos: list[UploadFile] | None = File(default=None),
     audio: UploadFile | None = File(default=None),
+    client_id: str | None = Form(default=None),
+    ocurrido_at: str | None = Form(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -60,9 +63,27 @@ async def create_incident(
     if vehicle is None:
         raise HTTPException(status_code=404, detail=f"Vehículo {placa} no encontrado.")
 
+    # Reintento de un reporte guardado sin señal: si ya llegó, no se duplica.
+    cid = (client_id or "").strip()[:40] or None
+    if cid:
+        previo = db.scalar(_query(db).where(Incident.client_id == cid))
+        if previo is not None:
+            return incident_out(previo)
+
     panic = es_panico.strip().lower() in ("1", "true", "yes", "on")
     incident_id = new_incident_id(db)
     now = utcnow()
+    # Hora real del hecho cuando el reporte esperó en el celular por falta de señal.
+    ocurrido = None
+    try:
+        if ocurrido_at:
+            ocurrido = datetime.fromisoformat(ocurrido_at.strip().replace("Z", "+00:00"))
+            if ocurrido.tzinfo is None:
+                ocurrido = ocurrido.replace(tzinfo=timezone.utc)
+    except ValueError:
+        ocurrido = None
+    retrasado = ocurrido is not None and timedelta(minutes=2) <= now - ocurrido <= timedelta(days=7)
+    creado = ocurrido if retrasado else now
     incident = Incident(
         id=incident_id,
         vehicle_id=vehicle.id,
@@ -77,7 +98,8 @@ async def create_incident(
         descripcion=descripcion.strip(),
         asignado_a=None,
         es_panico=panic,
-        created_at=now,
+        client_id=cid,
+        created_at=creado,
         updated_at=now,
     )
     db.add(incident)
@@ -85,7 +107,12 @@ async def create_incident(
         IncidentEvent(
             incident_id=incident_id,
             estado="reportado",
-            notas="Reporte de emergencia" if panic else "Incidencia registrada",
+            notas=("Reporte de emergencia" if panic else "Incidencia registrada")
+            + (
+                f" sin señal a las {creado.astimezone(timezone(timedelta(hours=-5))).strftime('%H:%M')}; se envió al recuperar la conexión"
+                if retrasado
+                else ""
+            ),
             changed_by=user.id,
         )
     )

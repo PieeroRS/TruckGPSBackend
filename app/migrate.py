@@ -8,6 +8,9 @@ from sqlalchemy.engine import Engine
 
 # tabla -> {columna: tipo SQL}
 NEW_COLUMNS: dict[str, dict[str, str]] = {
+    "incidents": {
+        "client_id": "VARCHAR(40)",
+    },
     "traffic_events": {
         "reportado_por": "VARCHAR(120)",
         "reportado_por_id": "VARCHAR(36)",
