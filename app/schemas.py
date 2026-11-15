@@ -162,6 +162,31 @@ class TrafficEventIn(BaseModel):
     duracion_min: int = Field(default=30, ge=1, le=720)
 
 
+class ClosureIn(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    descripcion: str | None = Field(default=None, max_length=160)
+    duracion_h: float = Field(default=12, ge=0.5, le=24 * 30)
+    route_id: str | None = None  # si se reporta navegando, el cierre se ajusta a la vía de la ruta
+
+
+class SavedPlaceIn(BaseModel):
+    nombre: str = Field(min_length=1, max_length=80)
+    direccion: str | None = Field(default=None, max_length=200)
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    compartido: bool | None = None
+
+
+class GuideIn(BaseModel):
+    origin_lat: float = Field(ge=-90, le=90)
+    origin_lng: float = Field(ge=-180, le=180)
+    dest_lat: float | None = Field(default=None, ge=-90, le=90)
+    dest_lng: float | None = Field(default=None, ge=-180, le=180)
+    route_id: str | None = None
+    motivo: str | None = None  # inicio | desvio | cierre
+
+
 class RoutePlanIn(BaseModel):
     origin_lat: float
     origin_lng: float

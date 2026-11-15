@@ -34,6 +34,9 @@ def traffic_out(t: TrafficEvent) -> dict:
         "radioM": t.radio_m,
         "simulado": t.simulado,
         "expira": iso(t.expira_at),
+        "creado": iso(t.created_at),
+        "reportadoPor": t.reportado_por,
+        "reportadoPorId": t.reportado_por_id,
     }
 
 

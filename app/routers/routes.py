@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user, is_staff, require_staff
 from app.database import get_db
 from app.models import NavRoute, User, Vehicle, utcnow
-from app.schemas import NavRouteCreateIn, NavRouteStatusIn, RoutePlanIn
+from app.schemas import GuideIn, NavRouteCreateIn, NavRouteStatusIn, RoutePlanIn
 from app.serializers import nav_route_out
 
 router = APIRouter(prefix="/nav-routes", tags=["nav-routes"])
@@ -47,10 +47,10 @@ def _sim_route_changed(db: Session, route: NavRoute, status: str) -> None:
 @router.post("/plan")
 def plan_route(body: RoutePlanIn, _user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Rutas alternativas con tiempo estimado con tráfico (franja horaria de Lima + eventos activos)."""
-    from app.models import TrafficEvent
+    from app.routers.traffic import active_events
     from app.routing import RoutingError, lima_traffic_factor, plan_with_alternatives
 
-    events = db.scalars(select(TrafficEvent).where(TrafficEvent.activo.is_(True))).all()
+    events = active_events(db)
     try:
         rutas = plan_with_alternatives((body.origin_lat, body.origin_lng), (body.dest_lat, body.dest_lng), events)
     except RoutingError as exc:
@@ -68,6 +68,86 @@ def plan_route(body: RoutePlanIn, _user: User = Depends(get_current_user), db: S
         "franja": franja,
         "factorHora": factor,
         "nota": "Tiempo con tráfico estimado según la hora en Lima y los eventos de tráfico registrados; OSRM no tiene tráfico en vivo.",
+    }
+
+
+def _can_drive(db: Session, route: NavRoute, user: User) -> bool:
+    if is_staff(user) or route.driver_id == user.id or route.created_by == user.id:
+        return True
+    if route.vehicle_id:
+        veh = db.get(Vehicle, route.vehicle_id)
+        return bool(veh and veh.conductor_id == user.id)
+    return False
+
+
+@router.post("/guia")
+def guide(body: GuideIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Guía giro a giro desde la posición actual hasta el destino, rodeando las calles cerradas.
+
+    - Con route_id usa el destino de esa ruta.
+    - motivo="cierre": la ruta en curso se actualiza con el nuevo trazado (hay una calle cerrada
+      reportada) y queda registrado para el centro de control.
+    - motivo="desvio": solo devuelve la guía. El trazado vigilado no cambia: si el conductor se
+      sale de la ruta autorizada, el centro de control sigue viendo el desvío.
+    """
+    from app.routers.traffic import active_events
+    from app.routing import RoutingError, closures_of, estimate, events_on_path, route_avoiding
+
+    route = None
+    if body.route_id:
+        route = db.get(NavRoute, body.route_id)
+        if route is None:
+            raise HTTPException(status_code=404, detail="Ruta no encontrada")
+        if not _can_drive(db, route, user):
+            raise HTTPException(status_code=403, detail="Sin permiso para navegar esta ruta")
+        dest = (route.dest_lat, route.dest_lng)
+    elif body.dest_lat is not None and body.dest_lng is not None:
+        dest = (body.dest_lat, body.dest_lng)
+    else:
+        raise HTTPException(status_code=400, detail="Falta el destino")
+    origin = (body.origin_lat, body.origin_lng)
+    events = active_events(db)
+    cierres = closures_of(events)
+    try:
+        res = route_avoiding(origin, dest, cierres, steps=True)
+    except RoutingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    est = estimate({k: res[k] for k in ("distance_km", "duration_min", "geometry")}, events)
+
+    actualizada = False
+    if route is not None and route.status == "en-curso" and body.motivo == "cierre" and res["cierres_evitados"]:
+        # El trazado autorizado tenía una calle cerrada por delante: se reemplaza por la ruta alterna.
+        restante = route.geometry or []
+        if restante and events_on_path(restante, cierres):
+            route.geometry = res["geometry"]
+            actualizada = True
+            if route.vehicle_id:
+                vehicle = db.get(Vehicle, route.vehicle_id)
+                if vehicle is not None:
+                    from app.detection import record_event, set_state
+
+                    set_state(db, vehicle.id, "desvio", None)
+                    nombres = ", ".join(c["descripcion"] for c in res["cierres_evitados"])
+                    record_event(
+                        db,
+                        vehicle,
+                        "ruta_recalculada",
+                        "low",
+                        f"{vehicle.placa} tomó una ruta alterna por calle cerrada ({nombres}). Nuevo trazado: {res['distance_km']} km.",
+                        body.origin_lat,
+                        body.origin_lng,
+                        {"ruta": route.route_label, "cierres": [c["id"] for c in res["cierres_evitados"]]},
+                    )
+    return {
+        "geometry": res["geometry"],
+        "steps": res.get("steps", []),
+        "distanceKm": res["distance_km"],
+        "durationMin": res["duration_min"],
+        "durationTrafficMin": est["duration_traffic_min"],
+        "cierresEvitados": res["cierres_evitados"],
+        "cierresEnRuta": res["cierres_en_ruta"],
+        "rutaActualizada": actualizada,
+        "destino": {"lat": dest[0], "lng": dest[1], "nombre": route.dest_name if route else None},
     }
 
 

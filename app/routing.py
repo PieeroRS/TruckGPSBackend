@@ -20,18 +20,25 @@ UA = "TruckGPS/1.0 (+https://truck-gps-umber.vercel.app)"
 LIMA = timezone(timedelta(hours=-5))
 
 # Demora agregada cuando una ruta pasa por un evento de tráfico.
-EVENT_DELAY_MIN = {"moderado": 6, "congestionado": 15, "bloqueo": 35}
-EVENT_LABEL = {"moderado": "Tráfico moderado", "congestionado": "Congestión", "bloqueo": "Vía bloqueada"}
+EVENT_DELAY_MIN = {"moderado": 6, "congestionado": 15, "bloqueo": 35, "cierre": 45}
+EVENT_LABEL = {"moderado": "Tráfico moderado", "congestionado": "Congestión", "bloqueo": "Vía bloqueada", "cierre": "Calle cerrada"}
+# Una calle cerrada no se atraviesa: las rutas la rodean. Radio del cierre reportado.
+CLOSURE_RADIUS_M = 25
 
 
 class RoutingError(RuntimeError):
     pass
 
 
-def osrm_routes(points: list[tuple[float, float]], alternatives: int = 0, timeout: float = 8) -> list[dict]:
-    """Rutas entre puntos [(lat, lng), ...]. Cada una: distance_km, duration_min, geometry [[lat,lng]]."""
+def osrm_routes(points: list[tuple[float, float]], alternatives: int = 0, timeout: float = 8, steps: bool = False) -> list[dict]:
+    """Rutas entre puntos [(lat, lng), ...]. Cada una: distance_km, duration_min, geometry [[lat,lng]].
+
+    Con steps=True agrega "steps": las maniobras giro a giro en español (para la guía por voz).
+    """
     coords = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in points)
     params = {"overview": "full", "geometries": "geojson"}
+    if steps:
+        params["steps"] = "true"
     if alternatives and len(points) == 2:
         params["alternatives"] = str(alternatives)
     url = OSRM_URL + coords + "?" + urllib.parse.urlencode(params)
@@ -52,7 +59,168 @@ def osrm_routes(points: list[tuple[float, float]], alternatives: int = 0, timeou
                 "geometry": [[round(lat, 5), round(lng, 5)] for lng, lat in r["geometry"]["coordinates"]],
             }
         )
+        if steps:
+            out[-1]["steps"] = build_steps(r, out[-1]["geometry"])
     return out
+
+
+# ─────────────── indicaciones giro a giro (español) ───────────────
+
+_GIRO = {
+    "left": "gira a la izquierda",
+    "right": "gira a la derecha",
+    "slight left": "gira ligeramente a la izquierda",
+    "slight right": "gira ligeramente a la derecha",
+    "sharp left": "gira cerrado a la izquierda",
+    "sharp right": "gira cerrado a la derecha",
+    "uturn": "da la vuelta en U",
+    "straight": "sigue recto",
+}
+_LADO = {"left": "izquierda", "slight left": "izquierda", "sharp left": "izquierda", "right": "derecha", "slight right": "derecha", "sharp right": "derecha"}
+_ORDINAL = {1: "primera", 2: "segunda", 3: "tercera", 4: "cuarta", 5: "quinta", 6: "sexta"}
+
+
+def _cap(text: str) -> str:
+    return text[:1].upper() + text[1:] if text else text
+
+
+def step_text(tipo: str, mod: str, calle: str, salida: int | None = None, destinos: str = "") -> str | None:
+    """Texto de una maniobra de OSRM. None = no se anuncia."""
+    en = f" en {calle}" if calle else ""
+    por = f" por {calle}" if calle else ""
+    hacia = f" hacia {calle}" if calle else (f" hacia {destinos.split(',')[0].split(':')[-1].strip()}" if destinos else "")
+    lado = _LADO.get(mod)
+    if tipo == "depart":
+        return f"Inicia el recorrido{por}"
+    if tipo == "arrive":
+        return "Has llegado a tu destino" + (f", a la {lado}" if lado else "")
+    if tipo in ("turn", "continue"):
+        if mod == "straight" or not mod:
+            return f"Continúa{por}" if calle else "Sigue recto"
+        if mod == "uturn":
+            return f"Da la vuelta en U{en}"
+        return _cap(_GIRO.get(mod, "gira")) + en
+    if tipo == "new name":
+        return f"Continúa{por}" if calle else None
+    if tipo == "merge":
+        return f"Incorpórate{' a ' + calle if calle else ''}" + (f" por la {lado}" if lado and not calle else "")
+    if tipo == "on ramp":
+        return f"Toma el acceso{' a la ' + lado if lado else ''}{hacia}"
+    if tipo == "off ramp":
+        return f"Toma la salida{' a la ' + lado if lado else ''}{hacia}"
+    if tipo == "fork":
+        return f"Mantente a la {lado}{hacia}" if lado else f"Continúa{por}"
+    if tipo == "end of road":
+        return f"Al final de la vía, {_GIRO.get(mod, 'gira')}{en}"
+    if tipo in ("roundabout", "rotary"):
+        n = _ORDINAL.get(salida or 0)
+        return (f"En el óvalo, toma la {n} salida" if n else "Entra al óvalo") + hacia
+    if tipo == "roundabout turn":
+        return f"En el óvalo, {_GIRO.get(mod, 'continúa')}{en}"
+    if tipo in ("exit roundabout", "exit rotary"):
+        return None
+    if tipo in ("notification", "use lane"):
+        return None
+    return f"Continúa{por}" if calle else None
+
+
+def build_steps(route: dict, geometry: list[list[float]]) -> list[dict]:
+    """Maniobras de una ruta OSRM: texto, punto y metros desde el inicio (along_m)."""
+    legs = route.get("legs") or []
+    total_geom = path_length_m(geometry)
+    total_osrm = sum(st.get("distance", 0) for leg in legs for st in leg.get("steps", [])) or 1.0
+    escala = total_geom / total_osrm if total_osrm else 1.0
+    out: list[dict] = []
+    acumulado = 0.0
+    for li, leg in enumerate(legs):
+        for st in leg.get("steps", []):
+            man = st.get("maneuver", {})
+            tipo, mod = man.get("type", ""), man.get("modifier", "")
+            dist = float(st.get("distance", 0))
+            # Los puntos de paso de un desvío no son llegadas ni salidas reales.
+            intermedio = (tipo == "arrive" and li < len(legs) - 1) or (tipo == "depart" and li > 0)
+            calle = (st.get("name") or "").strip() or (st.get("ref") or "").split(";")[0].strip()
+            texto = None if intermedio else step_text(tipo, mod, calle, man.get("exit"), st.get("destinations") or "")
+            if texto:
+                lng, lat = man.get("location", [None, None])
+                out.append(
+                    {
+                        "texto": texto,
+                        "tipo": tipo,
+                        "mod": mod,
+                        "calle": calle,
+                        "lat": round(lat, 6) if lat is not None else None,
+                        "lng": round(lng, 6) if lng is not None else None,
+                        "along_m": round(acumulado * escala),
+                        "distancia_m": round(dist),
+                    }
+                )
+            acumulado += dist
+    # Une «Continúa por X» seguidos de la misma calle y descarta pasos pegados al anterior.
+    limpio: list[dict] = []
+    for s in out:
+        if limpio and s["tipo"] in ("new name", "continue") and s["mod"] in ("straight", "") and s["calle"] and s["calle"] == limpio[-1]["calle"]:
+            limpio[-1]["distancia_m"] += s["distancia_m"]
+            continue
+        limpio.append(s)
+    return limpio
+
+
+# ─────────────── calles cerradas ───────────────
+
+def closures_of(events: list) -> list:
+    return [e for e in events if e.nivel == "cierre"]
+
+
+def route_avoiding(origin: tuple[float, float], dest: tuple[float, float], closures: list, steps: bool = False) -> dict:
+    """Mejor ruta que no pasa por ninguna calle cerrada.
+
+    Primero prueba las alternativas de OSRM; si todas pasan por un cierre, fuerza desvíos por
+    puntos de paso a cada lado de la vía cerrada. Devuelve la ruta con:
+    - cierres_evitados: cierres por los que pasaba la ruta directa y la devuelta ya no.
+    - cierres_en_ruta: cierres que no se pudieron rodear (la ruta pasa por ellos).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    directas = osrm_routes([origin, dest], alternatives=3, steps=steps)
+    base = directas[0]
+    if not closures:
+        return {**base, "cierres_evitados": [], "cierres_en_ruta": []}
+    hits_base = events_on_path(base["geometry"], closures)
+    if not hits_base:
+        return {**base, "cierres_evitados": [], "cierres_en_ruta": []}
+
+    def libre(r: dict) -> bool:
+        return not events_on_path(r["geometry"], closures)
+
+    libres = [r for r in directas if libre(r)]
+    if not libres:
+        # Desvíos forzados alrededor del primer cierre que encuentra la ruta.
+        ev = min(hits_base, key=lambda e: project(base["geometry"], e.lat, e.lng).along_m)
+        pr = project(base["geometry"], ev.lat, ev.lng)
+        from app.geo import point_at
+
+        _, _, rumbo = point_at(base["geometry"], pr.along_m)
+        vias = [destination(ev.lat, ev.lng, rumbo + lado, d) for d in (180, 350, 650, 1100) for lado in (90, -90)]
+
+        def intento(via: tuple[float, float]) -> dict | None:
+            try:
+                return osrm_routes([origin, via, dest], steps=steps)[0]
+            except RoutingError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            cands = [c for c in pool.map(intento, vias) if c]
+        limite = base["distance_km"] * 2.5 + 3
+        libres = [c for c in cands if libre(c) and c["distance_km"] <= limite]
+    if libres:
+        mejor = min(libres, key=lambda r: r["duration_min"])
+        return {**mejor, "cierres_evitados": [closure_brief(e) for e in hits_base], "cierres_en_ruta": []}
+    return {**base, "cierres_evitados": [], "cierres_en_ruta": [closure_brief(e) for e in hits_base]}
+
+
+def closure_brief(e) -> dict:
+    return {"id": e.id, "descripcion": e.descripcion, "lat": e.lat, "lng": e.lng}
 
 
 def detour_alternative(origin: tuple[float, float], dest: tuple[float, float], avoid: tuple[float, float] | None = None) -> list[dict]:
@@ -139,8 +307,22 @@ def estimate(route: dict, events: list, when: datetime | None = None) -> dict:
 
 
 def plan_with_alternatives(origin: tuple[float, float], dest: tuple[float, float], events: list) -> list[dict]:
-    """Hasta 3 rutas distintas, con tráfico estimado, ordenadas por tiempo estimado."""
+    """Hasta 3 rutas distintas, con tráfico estimado, ordenadas por tiempo estimado.
+
+    Las rutas que pasan por una calle cerrada se descartan si existe otra que la rodea.
+    """
     routes = osrm_routes([origin, dest], alternatives=3)
+    cierres = closures_of(events)
+    evitados: list[dict] = []
+    if cierres and any(events_on_path(r["geometry"], cierres) for r in routes):
+        try:
+            alterna = route_avoiding(origin, dest, cierres)
+        except RoutingError:
+            alterna = None
+        if alterna and not alterna["cierres_en_ruta"]:
+            evitados = alterna["cierres_evitados"]
+            limpias = [r for r in routes if not events_on_path(r["geometry"], cierres)]
+            routes = [{k: alterna[k] for k in ("distance_km", "duration_min", "geometry")}] + limpias
     if len(routes) < 2:
         avoid = None
         if events:
@@ -148,6 +330,8 @@ def plan_with_alternatives(origin: tuple[float, float], dest: tuple[float, float
             if hits:
                 avoid = (hits[0].lat, hits[0].lng)
         routes += detour_alternative(origin, dest, avoid)
+    if evitados:
+        routes = [r for r in routes if not events_on_path(r["geometry"], cierres)]
     # Quitar duplicados casi iguales y desvíos absurdos (> 1.6 veces la más corta).
     shortest = min(r["distance_km"] for r in routes)
     uniq: list[dict] = []
@@ -160,6 +344,8 @@ def plan_with_alternatives(origin: tuple[float, float], dest: tuple[float, float
     est = sorted((estimate(r, events) for r in uniq[:3]), key=lambda r: r["duration_traffic_min"])
     for i, r in enumerate(est):
         r["recomendada"] = i == 0
+        r["cierres_evitados"] = evitados if not any(e["nivel"] == "cierre" for e in r["eventos"]) else []
+        r["pasa_por_cierre"] = any(e["nivel"] == "cierre" for e in r["eventos"])
     return est
 
 
