@@ -106,6 +106,8 @@ class Incident(Base):
     descripcion: Mapped[str] = mapped_column(Text, nullable=False)
     asignado_a: Mapped[str | None] = mapped_column(String(200))
     es_panico: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Identificador que pone el celular: evita duplicar un reporte que se reintenta al volver la señal.
+    client_id: Mapped[str | None] = mapped_column(String(40), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
