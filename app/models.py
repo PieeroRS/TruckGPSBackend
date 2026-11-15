@@ -314,6 +314,24 @@ class TrafficEvent(Base):
     activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     expira_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Quién lo reportó (calles cerradas reportadas por conductores o supervisores).
+    reportado_por: Mapped[str | None] = mapped_column(String(120))
+    reportado_por_id: Mapped[str | None] = mapped_column(String(36))
+
+
+class SavedPlace(Base):
+    """Lugar guardado para encontrarlo por nombre en Rutas (casa, clientes, almacenes)."""
+
+    __tablename__ = "saved_places"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    nombre: Mapped[str] = mapped_column(String(80), nullable=False)
+    direccion: Mapped[str | None] = mapped_column(String(200))
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    compartido: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # visible para toda la empresa
+    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SimState(Base):
