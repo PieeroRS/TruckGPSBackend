@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # conductor; el correo/SMS al supervisor solo se envía si esto es true.
     official_zone_alerts: bool = False
 
+    # Tráfico en vivo y búsqueda de lugares. La clave se pega solo en Vercel, nunca en el código.
+    tomtom_api_key: str = ""
+
 
 settings = Settings()
 
