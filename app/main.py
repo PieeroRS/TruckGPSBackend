@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import UPLOADS_DIR, settings
 from app.database import Base, SessionLocal, engine
 from app.migrate import ensure_columns
-from app.routers import alerts, auth, dashboard, fuel, incidents, places, profiles, routes, settings as settings_router, simulator, traffic, vehicles, zones
+from app.routers import alerts, auth, dashboard, fuel, incidents, mapas, places, profiles, routes, settings as settings_router, simulator, traffic, vehicles, zones
 from app.official_zones import load_official_zones
 from app.seed import seed_if_empty
 
@@ -81,6 +81,7 @@ app.include_router(simulator.router, prefix="/api")
 app.include_router(traffic.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(places.router, prefix="/api")
+app.include_router(mapas.router, prefix="/api")
 
 
 @app.get("/api/health")
