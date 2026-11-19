@@ -133,7 +133,7 @@ def informe_seguridad(db: Session, d: date) -> dict:
                 "id": i.id,
                 "placa": placas.get(i.vehicle_id, "—"),
                 "titulo": i.titulo + (" (pánico)" if i.es_panico else ""),
-                "severidad": i.severidad,
+                "severidad": SEV_LABEL.get(i.severidad, i.severidad),
                 "estado": ESTADO_INC.get(i.estado, i.estado),
             }
             for i in incidencias
