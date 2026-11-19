@@ -24,6 +24,7 @@ def capa_trafico(user: User = Depends(get_current_user)):
         "disponible": True,
         "url": f"/mapas/trafico/{{z}}/{{x}}/{{y}}.png?s={sig}",
         "base": f"/mapas/base/{{estilo}}/{{z}}/{{x}}/{{y}}.png?s={sig}",
+        "flujo": f"/mapas/flujo/{{z}}/{{x}}/{{y}}.pbf?s={sig}",
         "expira": expira,
     }
 
@@ -70,3 +71,17 @@ def cuadro_base(estilo: str, z: int, x: int, y: int, s: str = Query(default="", 
     except tomtom.TomTomError as e:
         raise HTTPException(status_code=e.status, detail=str(e)) from None
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "public, max-age=86400, s-maxage=86400"})
+
+
+@router.get("/flujo/{z}/{x}/{y}.pbf")
+def cuadro_flujo(z: int, x: int, y: int, s: str = Query(default="", max_length=40)):
+    """Tráfico en vectores para el mapa de navegación (copia de 2 min en el CDN)."""
+    if not tomtom.signature_ok(s):
+        raise HTTPException(status_code=403, detail="Enlace de tráfico vencido")
+    if not tomtom.tile_allowed(z, x, y):
+        return Response(status_code=204)
+    try:
+        data = tomtom.flow_vector_tile(z, x, y)
+    except tomtom.TomTomError as e:
+        raise HTTPException(status_code=e.status, detail=str(e)) from None
+    return Response(content=data, media_type="application/x-protobuf", headers={"Cache-Control": "public, max-age=60, s-maxage=120"})
