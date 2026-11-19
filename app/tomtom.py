@@ -287,5 +287,274 @@ def status() -> dict:
     except TomTomError as e:
         val = {"configurado": True, "funciona": False, "detalle": str(e), "intento": _variant["i"] + 1}
     val["busquedasRestantesHoy"] = search_left_today()
+    val["rutasRestantesHoy"] = route_left_today()
     _status_cache.update(at=time.time(), val=val)
     return val
+
+
+# ─────────────── rutas con tráfico en vivo ───────────────
+
+# Plan gratuito: 20 000 cálculos de ruta al mes (~660 al día). Se deja margen.
+ROUTE_DAILY_CAP = 500
+ROUTE_TTL_S = 60
+_routes = _TTLCache(300)
+_route_day = {"dia": "", "n": 0}
+
+# Maniobra de TomTom → (tipo, modificador) con los mismos nombres que usa la app para los íconos.
+_MANIOBRA = {
+    "DEPART": ("depart", ""),
+    "ARRIVE": ("arrive", ""),
+    "ARRIVE_LEFT": ("arrive", "left"),
+    "ARRIVE_RIGHT": ("arrive", "right"),
+    "STRAIGHT": ("continue", "straight"),
+    "FOLLOW": ("continue", "straight"),
+    "KEEP_RIGHT": ("fork", "slight right"),
+    "BEAR_RIGHT": ("turn", "slight right"),
+    "TURN_RIGHT": ("turn", "right"),
+    "SHARP_RIGHT": ("turn", "sharp right"),
+    "KEEP_LEFT": ("fork", "slight left"),
+    "BEAR_LEFT": ("turn", "slight left"),
+    "TURN_LEFT": ("turn", "left"),
+    "SHARP_LEFT": ("turn", "sharp left"),
+    "MAKE_UTURN": ("turn", "uturn"),
+    "TRY_MAKE_UTURN": ("turn", "uturn"),
+    "ENTER_MOTORWAY": ("merge", ""),
+    "ENTER_FREEWAY": ("merge", ""),
+    "ENTER_HIGHWAY": ("merge", ""),
+    "ENTRANCE_RAMP": ("on ramp", ""),
+    "TAKE_EXIT": ("off ramp", "slight right"),
+    "MOTORWAY_EXIT_RIGHT": ("off ramp", "slight right"),
+    "MOTORWAY_EXIT_LEFT": ("off ramp", "slight left"),
+    "ROUNDABOUT_CROSS": ("roundabout", "straight"),
+    "ROUNDABOUT_RIGHT": ("roundabout", "right"),
+    "ROUNDABOUT_LEFT": ("roundabout", "left"),
+    "ROUNDABOUT_BACK": ("roundabout", "uturn"),
+    "SWITCH_PARALLEL_ROAD": ("continue", "straight"),
+    "SWITCH_MAIN_ROAD": ("continue", "straight"),
+    "TAKE_FERRY": ("continue", "straight"),
+    "WAYPOINT_LEFT": ("continue", "left"),
+    "WAYPOINT_RIGHT": ("continue", "right"),
+    "WAYPOINT_REACHED": ("continue", "straight"),
+}
+
+
+def route_left_today() -> int:
+    if _route_day["dia"] != _today():
+        return ROUTE_DAILY_CAP
+    return max(0, ROUTE_DAILY_CAP - int(_route_day["n"]))
+
+
+def _avoid_rects(avoid: list[tuple[float, float, float]]) -> list[dict]:
+    """Un rectángulo pequeño alrededor de cada calle cerrada (TomTom acepta hasta 10)."""
+    rects = []
+    for lat, lng, radio in avoid[:10]:
+        r = max(radio, 20.0) + 10
+        dlat = r / 111_320
+        dlng = r / (111_320 * max(0.2, math.cos(math.radians(lat))))
+        rects.append(
+            {
+                "southWestCorner": {"latitude": round(lat - dlat, 6), "longitude": round(lng - dlng, 6)},
+                "northEastCorner": {"latitude": round(lat + dlat, 6), "longitude": round(lng + dlng, 6)},
+            }
+        )
+    return rects
+
+
+def _steps_from(route: dict, geometry: list[list[float]]) -> list[dict]:
+    ins = ((route.get("guidance") or {}).get("instructions")) or []
+    steps: list[dict] = []
+    for k, i in enumerate(ins):
+        man = i.get("maneuver") or ""
+        tipo, mod = _MANIOBRA.get(man, ("continue", "straight"))
+        if k == 0:
+            tipo, mod = "depart", ""
+        texto = (i.get("message") or "").strip()
+        if not texto:
+            continue
+        pt = i.get("point") or {}
+        steps.append(
+            {
+                "texto": texto.rstrip("."),
+                "tipo": tipo,
+                "mod": mod,
+                "calle": i.get("street") or "",
+                "lat": pt.get("latitude", geometry[0][0]),
+                "lng": pt.get("longitude", geometry[0][1]),
+                "along_m": int(i.get("routeOffsetInMeters") or 0),
+                "distancia_m": 0,
+            }
+        )
+    for a, b in zip(steps, steps[1:]):
+        a["distancia_m"] = max(0, b["along_m"] - a["along_m"])
+    if steps and steps[-1]["tipo"] != "arrive":
+        total = int(route.get("summary", {}).get("lengthInMeters") or 0)
+        steps.append({"texto": "Has llegado a tu destino", "tipo": "arrive", "mod": "", "calle": "", "lat": geometry[-1][0], "lng": geometry[-1][1], "along_m": total, "distancia_m": 0})
+    return steps
+
+
+def routes(
+    points: list[tuple[float, float]],
+    alternatives: int = 0,
+    avoid: list[tuple[float, float, float]] | None = None,
+    guidance: bool = False,
+) -> list[dict]:
+    """Rutas en auto con el tráfico de este momento (la más rápida primero).
+
+    Cada ruta trae: distance_km, duration_min (sin tráfico), duration_live_min (con el tráfico
+    de ahora), delay_min, geometry y, si se pide, steps (indicaciones en español).
+    Lanza TomTomError si no está configurado, se acabó el cupo del día o TomTom falla.
+    """
+    if not configured():
+        raise TomTomError("TomTom no está configurado", 503)
+    avoid = avoid or []
+    clave = "|".join(
+        [
+            ";".join(f"{p[0]:.4f},{p[1]:.4f}" for p in points),
+            str(alternatives),
+            ";".join(f"{a[0]:.5f},{a[1]:.5f}" for a in avoid),
+            "g" if guidance else "",
+        ]
+    )
+    hit = _routes.get(clave)
+    if hit is not None:
+        return hit  # type: ignore[return-value]
+    if route_left_today() <= 0:
+        raise TomTomError("Se usó el cupo diario de rutas con tráfico", 429)
+    dia = _today()
+    if _route_day["dia"] != dia:
+        _route_day.update(dia=dia, n=0)
+    _route_day["n"] = int(_route_day["n"]) + 1
+
+    params: dict[str, str | int | float] = {
+        "traffic": "true",
+        "computeTravelTimeFor": "all",
+        "routeType": "fastest",
+        "travelMode": "car",
+        "maxAlternatives": alternatives,
+        "routeRepresentation": "polyline",
+    }
+    if guidance:
+        params.update(instructionsType="text", language="es-ES")
+    locs = ":".join(f"{p[0]:.6f},{p[1]:.6f}" for p in points)
+    path = f"/routing/1/calculateRoute/{locs}/json"
+    if avoid:
+        data, _ = _post(path, params, {"avoidAreas": {"rectangles": _avoid_rects(avoid)}})
+    else:
+        data, _ = _fetch(path, params, timeout=8)
+    try:
+        body = json.loads(data)
+    except ValueError:
+        raise TomTomError("Respuesta inválida de TomTom") from None
+
+    out: list[dict] = []
+    for r in body.get("routes", []):
+        geometry = [[p["latitude"], p["longitude"]] for leg in r.get("legs", []) for p in leg.get("points", [])]
+        if len(geometry) < 2:
+            continue
+        s = r.get("summary", {})
+        vivo = (s.get("travelTimeInSeconds") or 0) / 60
+        libre = (s.get("noTrafficTravelTimeInSeconds") or s.get("travelTimeInSeconds") or 0) / 60
+        item = {
+            "distance_km": round((s.get("lengthInMeters") or 0) / 1000, 2),
+            "duration_min": round(libre, 1),
+            "duration_live_min": round(vivo, 1),
+            "delay_min": round((s.get("trafficDelayInSeconds") or 0) / 60, 1),
+            "arrival": s.get("arrivalTime"),
+            "geometry": geometry,
+            "fuente": "tomtom",
+        }
+        if guidance:
+            item["steps"] = _steps_from(r, geometry)
+        out.append(item)
+    if not out:
+        raise TomTomError("TomTom no encontró ruta", 404)
+    out.sort(key=lambda x: x["duration_live_min"])
+    _routes.put(clave, out, ROUTE_TTL_S)
+    return out
+
+
+def _post(path: str, params: dict, payload: dict, timeout: float = 8) -> tuple[bytes, str]:
+    if not configured():
+        raise TomTomError("TomTom no está configurado", 503)
+    q = {"key": settings.tomtom_api_key.strip(), **params}
+    url = f"{BASE}{path}?{urllib.parse.urlencode(q)}"
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(), headers={"User-Agent": UA, "Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read(), resp.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as e:
+        msg = "TomTom rechazó la clave" if e.code in (401, 403) else f"TomTom respondió con error {e.code}"
+        _remember_error(msg)
+        raise TomTomError(msg, 429 if e.code == 429 else 502) from None
+    except (urllib.error.URLError, TimeoutError, OSError):
+        _remember_error("No se pudo conectar con TomTom")
+        raise TomTomError("No se pudo conectar con TomTom", 504) from None
+
+
+def _thin(path: list[list[float]], max_points: int = 150) -> list[list[float]]:
+    if len(path) <= max_points:
+        return path
+    paso = (len(path) - 1) / (max_points - 1)
+    return [path[round(i * paso)] for i in range(max_points)]
+
+
+def reassess(path: list[list[float]], avoid: list[tuple[float, float, float]] | None = None) -> dict:
+    """Compara, con el tráfico de ahora, la ruta que se está siguiendo contra la más rápida.
+
+    `path` va desde la posición actual hasta el destino. TomTom reconstruye esa ruta y propone
+    una alternativa; devuelve {"actual_min": tiempo por la ruta de ahora, "mejor": ruta o None}.
+    """
+    if not configured():
+        raise TomTomError("TomTom no está configurado", 503)
+    if len(path) < 2:
+        raise TomTomError("Ruta muy corta", 400)
+    if route_left_today() <= 0:
+        raise TomTomError("Se usó el cupo diario de rutas con tráfico", 429)
+    dia = _today()
+    if _route_day["dia"] != dia:
+        _route_day.update(dia=dia, n=0)
+    _route_day["n"] = int(_route_day["n"]) + 1
+
+    puntos = _thin(path)
+    params: dict[str, str | int | float] = {
+        "traffic": "true",
+        "computeTravelTimeFor": "all",
+        "routeType": "fastest",
+        "travelMode": "car",
+        "maxAlternatives": 1,
+        "minDeviationDistance": 0,
+        "minDeviationTime": 0,
+        "instructionsType": "text",
+        "language": "es-ES",
+    }
+    payload: dict = {"supportingPoints": [{"latitude": p[0], "longitude": p[1]} for p in puntos]}
+    if avoid:
+        payload["avoidAreas"] = {"rectangles": _avoid_rects(avoid)}
+    a, b = puntos[0], puntos[-1]
+    data, _ = _post(f"/routing/1/calculateRoute/{a[0]:.6f},{a[1]:.6f}:{b[0]:.6f},{b[1]:.6f}/json", params, payload, timeout=10)
+    try:
+        rutas = json.loads(data).get("routes", [])
+    except ValueError:
+        raise TomTomError("Respuesta inválida de TomTom") from None
+    if not rutas:
+        raise TomTomError("TomTom no encontró ruta", 404)
+    actual = (rutas[0].get("summary", {}).get("travelTimeInSeconds") or 0) / 60
+    mejor = None
+    for r in rutas[1:]:
+        geometry = [[p["latitude"], p["longitude"]] for leg in r.get("legs", []) for p in leg.get("points", [])]
+        if len(geometry) < 2:
+            continue
+        s = r.get("summary", {})
+        mejor = {
+            "distance_km": round((s.get("lengthInMeters") or 0) / 1000, 2),
+            "duration_min": round((s.get("noTrafficTravelTimeInSeconds") or s.get("travelTimeInSeconds") or 0) / 60, 1),
+            "duration_live_min": round((s.get("travelTimeInSeconds") or 0) / 60, 1),
+            "delay_min": round((s.get("trafficDelayInSeconds") or 0) / 60, 1),
+            "geometry": geometry,
+            "steps": _steps_from(r, geometry),
+            "fuente": "tomtom",
+        }
+        break
+    return {"actual_min": round(actual, 1), "mejor": mejor}

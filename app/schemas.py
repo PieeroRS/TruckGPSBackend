@@ -196,6 +196,16 @@ class GuideIn(BaseModel):
     motivo: str | None = None  # inicio | desvio | cierre
 
 
+class TrafficCheckIn(BaseModel):
+    """Revisión periódica del tráfico durante la navegación."""
+
+    origin_lat: float = Field(ge=-90, le=90)
+    origin_lng: float = Field(ge=-180, le=180)
+    route_id: str | None = None
+    # Lo que falta de la ruta que se está siguiendo (solo se usa para comparar tiempos).
+    ruta_actual: list[list[float]] = Field(default_factory=list, max_length=600)
+
+
 class RoutePlanIn(BaseModel):
     origin_lat: float
     origin_lng: float

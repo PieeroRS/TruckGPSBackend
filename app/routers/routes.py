@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import get_current_user, is_staff, require_staff
 from app.database import get_db
 from app.models import NavRoute, User, Vehicle, utcnow
-from app.schemas import GuideIn, NavRouteCreateIn, NavRouteStatusIn, RoutePlanIn
+from app.schemas import GuideIn, TrafficCheckIn, NavRouteCreateIn, NavRouteStatusIn, RoutePlanIn
 from app.serializers import nav_route_out
 
 router = APIRouter(prefix="/nav-routes", tags=["nav-routes"])
@@ -67,7 +67,12 @@ def plan_route(body: RoutePlanIn, _user: User = Depends(get_current_user), db: S
         "historico": historico,
         "franja": franja,
         "factorHora": factor,
-        "nota": "Tiempo con tráfico estimado según la hora en Lima y los eventos de tráfico registrados; OSRM no tiene tráfico en vivo.",
+        "enVivo": bool(rutas and rutas[0].get("en_vivo")),
+        "nota": (
+            "Tiempo con el tráfico de este momento (TomTom)."
+            if rutas and rutas[0].get("en_vivo")
+            else "Tiempo con tráfico estimado según la hora en Lima y los eventos de tráfico registrados."
+        ),
     }
 
 
@@ -112,7 +117,7 @@ def guide(body: GuideIn, user: User = Depends(get_current_user), db: Session = D
         res = route_avoiding(origin, dest, cierres, steps=True)
     except RoutingError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    est = estimate({k: res[k] for k in ("distance_km", "duration_min", "geometry")}, events)
+    est = estimate({k: res[k] for k in ("distance_km", "duration_min", "duration_live_min", "geometry") if k in res}, events)
 
     actualizada = False
     if route is not None and route.status == "en-curso" and body.motivo == "cierre" and res["cierres_evitados"]:
@@ -139,6 +144,8 @@ def guide(body: GuideIn, user: User = Depends(get_current_user), db: Session = D
                         {"ruta": route.route_label, "cierres": [c["id"] for c in res["cierres_evitados"]]},
                     )
     return {
+        "enVivo": bool(est.get("en_vivo")),
+        "demoraTraficoMin": res.get("delay_min"),
         "geometry": res["geometry"],
         "steps": res.get("steps", []),
         "distanceKm": res["distance_km"],
@@ -256,3 +263,95 @@ def delete_route(route_id: str, _user: User = Depends(require_staff), db: Sessio
     _sim_route_changed(db, route, "cancelada")
     db.delete(route)
     return {"ok": True}
+
+
+AHORRO_MIN = 3.0
+
+
+@router.post("/guia/trafico")
+def traffic_check(body: TrafficCheckIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Durante la navegación: ¿hay una ruta más rápida por el tráfico de ahora?
+
+    Devuelve el tiempo que falta por la ruta actual (con tráfico real) y, si otra ruta ahorra al
+    menos 3 minutos y un 10 %, la guía completa por esa ruta. Si la ruta está en curso, el
+    trazado vigilado se actualiza y queda registrado para el centro de control.
+    """
+    from app import tomtom
+    from app.geo import project, sub_path, path_length_m
+    from app.routers.traffic import active_events
+    from app.routing import _avoid_list, closures_of, estimate, events_on_path
+
+    if not tomtom.configured():
+        return {"disponible": False}
+    route = None
+    origin = [body.origin_lat, body.origin_lng]
+    camino: list[list[float]] = []
+    if body.route_id:
+        route = db.get(NavRoute, body.route_id)
+        if route is None:
+            raise HTTPException(status_code=404, detail="Ruta no encontrada")
+        if not _can_drive(db, route, user):
+            raise HTTPException(status_code=403, detail="Sin permiso para navegar esta ruta")
+        if route.status == "en-curso" and route.geometry:
+            pr = project(route.geometry, origin[0], origin[1])
+            if pr and pr.distance_m <= 150:
+                camino = [origin] + sub_path(route.geometry, pr.along_m, path_length_m(route.geometry))[1:]
+    if len(camino) < 2:
+        camino = [origin] + [p for p in body.ruta_actual if isinstance(p, list) and len(p) == 2][1:]
+    if len(camino) < 2 or path_length_m(camino) < 1500:
+        return {"disponible": True, "cambio": False}  # ya está cerca: no vale la pena cambiar
+
+    events = active_events(db)
+    cierres = closures_of(events)
+    try:
+        res = tomtom.reassess(camino, _avoid_list(cierres))
+    except tomtom.TomTomError as exc:
+        return {"disponible": False, "detalle": str(exc)}
+    actual = res["actual_min"]
+    mejor = res["mejor"]
+    if not mejor or (cierres and events_on_path(mejor["geometry"], cierres)):
+        return {"disponible": True, "cambio": False, "etaMin": actual}
+    ahorro = round(actual - mejor["duration_live_min"], 1)
+    if ahorro < max(AHORRO_MIN, actual * 0.10):
+        return {"disponible": True, "cambio": False, "etaMin": actual}
+
+    actualizada = False
+    if route is not None and route.status == "en-curso":
+        route.geometry = mejor["geometry"]
+        actualizada = True
+        if route.vehicle_id:
+            vehicle = db.get(Vehicle, route.vehicle_id)
+            if vehicle is not None:
+                from app.detection import record_event
+
+                record_event(
+                    db,
+                    vehicle,
+                    "ruta_recalculada",
+                    "low",
+                    f"{vehicle.placa} tomó una ruta más rápida por el tráfico (ahorra ~{ahorro:.0f} min). Nuevo trazado: {mejor['distance_km']} km.",
+                    body.origin_lat,
+                    body.origin_lng,
+                    {"ruta": route.route_label, "motivo": "trafico", "ahorro_min": ahorro},
+                )
+    est = estimate({k: mejor[k] for k in ("distance_km", "duration_min", "duration_live_min", "geometry")}, events)
+    dest = mejor["geometry"][-1]
+    return {
+        "disponible": True,
+        "cambio": True,
+        "ahorroMin": ahorro,
+        "etaMin": actual,
+        "guia": {
+            "enVivo": True,
+            "demoraTraficoMin": mejor["delay_min"],
+            "geometry": mejor["geometry"],
+            "steps": mejor["steps"],
+            "distanceKm": mejor["distance_km"],
+            "durationMin": mejor["duration_min"],
+            "durationTrafficMin": est["duration_traffic_min"],
+            "cierresEvitados": [],
+            "cierresEnRuta": [],
+            "rutaActualizada": actualizada,
+            "destino": {"lat": dest[0], "lng": dest[1], "nombre": route.dest_name if route else None},
+        },
+    }

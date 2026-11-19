@@ -1,14 +1,15 @@
-"""Cálculo de rutas (OSRM) y estimación de tráfico.
+"""Cálculo de rutas y tiempo con tráfico.
 
-OSRM (router.project-osrm.org, datos de OpenStreetMap) da la geometría y el
-tiempo a flujo libre. No tiene tráfico en vivo, así que el tiempo con tráfico es
-una ESTIMACIÓN: factor por hora del día en Lima + demoras por eventos de tráfico
-activos (los que registra el supervisor o el simulador). Para tráfico real se
-puede conectar un proveedor (TomTom, HERE, Google) más adelante.
+Con TomTom configurado (TOMTOM_API_KEY) las rutas se calculan con el tráfico de
+este momento: se elige la más rápida y el tiempo de llegada es el real.
+Si TomTom no está o falla, se usa OSRM (router.project-osrm.org, OpenStreetMap):
+da el trazado a flujo libre y el tiempo con tráfico es una ESTIMACIÓN por hora del
+día en Lima + demoras por eventos de tráfico registrados en la app.
 """
 from __future__ import annotations
 
 import json
+import logging
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,7 @@ from app.geo import destination, haversine_m, path_length_m, project
 OSRM_URL = "https://router.project-osrm.org/route/v1/driving/"
 UA = "TruckGPS/1.0 (+https://truck-gps-umber.vercel.app)"
 LIMA = timezone(timedelta(hours=-5))
+log = logging.getLogger("truckgps.routing")
 
 # Demora agregada cuando una ruta pasa por un evento de tráfico.
 EVENT_DELAY_MIN = {"moderado": 6, "congestionado": 15, "bloqueo": 35, "cierre": 45}
@@ -168,6 +170,33 @@ def build_steps(route: dict, geometry: list[list[float]]) -> list[dict]:
 
 # ─────────────── calles cerradas ───────────────
 
+def _avoid_list(closures: list) -> list[tuple[float, float, float]]:
+    return [(e.lat, e.lng, float(e.radio_m or CLOSURE_RADIUS_M)) for e in closures]
+
+
+def _near_not_on(path: list[list[float]], closures: list, cerca_m: float = 400) -> list:
+    """Cierres que la ruta bordea sin pasar por ellos (señal de que los rodeó)."""
+    out = []
+    for e in closures:
+        pr = project(path, e.lat, e.lng)
+        if pr and (e.radio_m or CLOSURE_RADIUS_M) < pr.distance_m <= cerca_m:
+            out.append(e)
+    return out
+
+
+def live_routes(points: list[tuple[float, float]], closures: list, alternatives: int = 0, steps: bool = False) -> list[dict] | None:
+    """Rutas de TomTom con el tráfico de ahora. None si no está disponible (se usa OSRM)."""
+    from app import tomtom
+
+    if not tomtom.configured():
+        return None
+    try:
+        return tomtom.routes(points, alternatives=alternatives, avoid=_avoid_list(closures), guidance=steps)
+    except tomtom.TomTomError as e:
+        log.warning("Rutas con tráfico no disponibles, se usa OSRM: %s", e)
+        return None
+
+
 def closures_of(events: list) -> list:
     return [e for e in events if e.nivel == "cierre"]
 
@@ -181,6 +210,17 @@ def route_avoiding(origin: tuple[float, float], dest: tuple[float, float], closu
     - cierres_en_ruta: cierres que no se pudieron rodear (la ruta pasa por ellos).
     """
     from concurrent.futures import ThreadPoolExecutor
+
+    vivas = live_routes([origin, dest], closures, steps=steps)
+    if vivas:
+        r = vivas[0]
+        en_ruta = events_on_path(r["geometry"], closures) if closures else []
+        evitados = [e for e in _near_not_on(r["geometry"], closures) if e not in en_ruta] if closures else []
+        return {
+            **r,
+            "cierres_evitados": [closure_brief(e) for e in evitados],
+            "cierres_en_ruta": [closure_brief(e) for e in en_ruta],
+        }
 
     directas = osrm_routes([origin, dest], alternatives=3, steps=steps)
     base = directas[0]
@@ -287,9 +327,28 @@ def events_on_path(path: list[list[float]], events: list) -> list:
 
 def estimate(route: dict, events: list, when: datetime | None = None) -> dict:
     """Agrega a una ruta OSRM el tiempo estimado con tráfico."""
-    factor, franja = lima_traffic_factor(when)
     base = route["duration_min"]
     hits = events_on_path(route["geometry"], events)
+    if route.get("duration_live_min") is not None:
+        # Tráfico real de TomTom: solo se suman los bloqueos y cierres reportados en la app
+        # (la congestión ya viene en el tiempo de TomTom).
+        delay = sum(EVENT_DELAY_MIN.get(e.nivel, 10) for e in hits if e.nivel in ("bloqueo", "cierre"))
+        total = round(route["duration_live_min"] + delay, 1)
+        eff = total / base if base else 1.0
+        return {
+            **route,
+            "duration_traffic_min": total,
+            "traffic_factor": round(eff, 2),
+            "traffic_level": "congestionado" if any(e.nivel in ("bloqueo", "cierre") for e in hits) else traffic_level(eff),
+            "franja": "el tráfico de ahora",
+            "en_vivo": True,
+            "eventos": [
+                {"id": e.id, "descripcion": e.descripcion, "nivel": e.nivel, "demora_min": EVENT_DELAY_MIN.get(e.nivel, 10)}
+                for e in hits
+                if e.nivel in ("bloqueo", "cierre")
+            ],
+        }
+    factor, franja = lima_traffic_factor(when)
     delay = sum(EVENT_DELAY_MIN.get(e.nivel, 10) for e in hits)
     total = round(base * factor + delay, 1)
     eff = total / base if base else factor
@@ -311,8 +370,18 @@ def plan_with_alternatives(origin: tuple[float, float], dest: tuple[float, float
 
     Las rutas que pasan por una calle cerrada se descartan si existe otra que la rodea.
     """
-    routes = osrm_routes([origin, dest], alternatives=3)
     cierres = closures_of(events)
+    vivas = live_routes([origin, dest], cierres, alternatives=2)
+    if vivas:
+        est = sorted((estimate(r, events) for r in vivas[:3]), key=lambda r: r["duration_traffic_min"])
+        for i, r in enumerate(est):
+            en = events_on_path(r["geometry"], cierres) if cierres else []
+            r["recomendada"] = i == 0
+            r["pasa_por_cierre"] = bool(en)
+            r["cierres_evitados"] = [closure_brief(e) for e in _near_not_on(r["geometry"], cierres) if e not in en] if cierres else []
+        return est
+
+    routes = osrm_routes([origin, dest], alternatives=3)
     evitados: list[dict] = []
     if cierres and any(events_on_path(r["geometry"], cierres) for r in routes):
         try:
