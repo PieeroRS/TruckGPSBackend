@@ -20,7 +20,12 @@ def capa_trafico(user: User = Depends(get_current_user)):
     if not tomtom.configured():
         return {"disponible": False}
     sig, expira = tomtom.tile_signature()
-    return {"disponible": True, "url": f"/mapas/trafico/{{z}}/{{x}}/{{y}}.png?s={sig}", "expira": expira}
+    return {
+        "disponible": True,
+        "url": f"/mapas/trafico/{{z}}/{{x}}/{{y}}.png?s={sig}",
+        "base": f"/mapas/base/{{estilo}}/{{z}}/{{x}}/{{y}}.png?s={sig}",
+        "expira": expira,
+    }
 
 
 @router.get("/trafico/{z}/{x}/{y}.png")
@@ -51,3 +56,17 @@ def buscar(
         return {"resultados": tomtom.search(q, lat, lng), "restantesHoy": tomtom.search_left_today()}
     except tomtom.TomTomError as e:
         raise HTTPException(status_code=e.status, detail=str(e)) from None
+
+
+@router.get("/base/{estilo}/{z}/{x}/{y}.png")
+def cuadro_base(estilo: str, z: int, x: int, y: int, s: str = Query(default="", max_length=40)):
+    """Mapa base para la navegación (de día o de noche). Se guarda un día en el CDN: el mapa casi no cambia."""
+    if not tomtom.signature_ok(s):
+        raise HTTPException(status_code=403, detail="Enlace del mapa vencido")
+    if estilo not in tomtom.BASE_STYLES or not tomtom.tile_allowed(z, x, y):
+        return Response(status_code=204)
+    try:
+        png = tomtom.base_tile(estilo, z, x, y)
+    except tomtom.TomTomError as e:
+        raise HTTPException(status_code=e.status, detail=str(e)) from None
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "public, max-age=86400, s-maxage=86400"})
