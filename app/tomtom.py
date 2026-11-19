@@ -191,6 +191,20 @@ def flow_tile(z: int, x: int, y: int) -> bytes:
     return data
 
 
+_vtiles = _TTLCache(1500)
+
+
+def flow_vector_tile(z: int, x: int, y: int) -> bytes:
+    """Tráfico en vectores (líneas con traffic_level 0–1): la app las dibuja nítidas al girar e inclinar."""
+    key = f"v/{z}/{x}/{y}"
+    hit = _vtiles.get(key)
+    if hit is not None:
+        return hit  # type: ignore[return-value]
+    data, _ = _fetch(f"/traffic/map/4/tile/flow/relative/{z}/{x}/{y}.pbf", {})
+    _vtiles.put(key, data, TILE_TTL_S)
+    return data
+
+
 # ─────────────── mapa base (navegación) ───────────────
 
 BASE_STYLES = ("main", "night")
