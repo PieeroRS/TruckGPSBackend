@@ -70,3 +70,50 @@ def put_flota(body: dict, user: User = Depends(require_staff), db: Session = Dep
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return get_flota(user, db)
+
+
+@router.get("/deteccion")
+def get_deteccion(_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return {
+        "valores": cfg.get_deteccion(db),
+        "porDefecto": cfg.DETECCION_DEFAULT,
+        "rangos": {k: {"min": lo, "max": hi} for k, (lo, hi) in cfg.DETECCION_RANGO.items()},
+        "presets": cfg.PRESETS,
+        "umbrales": cfg.get_umbrales(db),
+        **cfg.meta(db, "deteccion"),
+    }
+
+
+@router.put("/deteccion")
+def put_deteccion(body: dict, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    try:
+        cfg.set_deteccion(db, body.get("valores", body), _who(user))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return get_deteccion(user, db)
+
+
+@router.post("/deteccion/sensibilidad")
+def post_sensibilidad(body: dict, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    try:
+        cfg.aplicar_sensibilidad(db, str(body.get("nivel", "")), _who(user))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return get_deteccion(user, db)
+
+
+@router.post("/deteccion/restablecer")
+def reset_deteccion(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    cfg.aplicar_sensibilidad(db, "media", _who(user))
+    return get_deteccion(user, db)
+
+
+@router.get("/registro")
+def get_registro(_user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    return {**cfg.get_registro(db), **cfg.meta(db, "registro")}
+
+
+@router.put("/registro")
+def put_registro(body: dict, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    cfg.set_registro(db, body, _who(user))
+    return get_registro(user, db)

@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.accounts import preferencias_de
 from app.models import AiAlert, FuelLog, Incident, NavRoute, User, Vehicle
 from app.schemas import iso, relative_time
+
 
 
 def profile_out(user: User, include_created: bool = False) -> dict:
@@ -17,6 +19,9 @@ def profile_out(user: User, include_created: bool = False) -> dict:
         "role": user.role,
         "telefono": user.telefono,
         "licencia": user.licencia,
+        "email_verificado": bool(user.email_verificado),
+        "onboarding_ok": bool(user.onboarding_ok),
+        "preferencias": preferencias_de(user),
     }
     if include_created:
         data["created_at"] = iso(user.created_at)

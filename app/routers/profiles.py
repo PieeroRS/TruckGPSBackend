@@ -61,3 +61,14 @@ def create_profile(body: CreateUserIn, _user: User = Depends(require_staff), db:
     db.add(user)
     db.flush()
     return profile_out(user, include_created=True)
+
+
+@router.post("/{user_id}/verificar")
+def verify_profile(user_id: str, _actor: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """El supervisor activa una cuenta nueva cuando el correo de verificación no llegó."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    user.email_verificado = True
+    db.flush()
+    return profile_out(user, include_created=True)
