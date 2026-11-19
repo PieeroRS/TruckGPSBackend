@@ -184,3 +184,116 @@ def set_flota(db: Session, cambios: dict, usuario: str | None) -> dict:
             data[k] = val
     _set(db, "flota", data, usuario)
     return data
+
+
+# ─────────────── parámetros de detección (sensibilidad y sabotaje) ───────────────
+
+DETECCION_DEFAULT = {
+    "sensibilidad": "media",
+    "umbral_sabotaje": 60,
+    "peso_desvio": 25,
+    "peso_spoofing": 35,
+    "peso_jamming": 35,
+    "peso_parada_riesgo": 20,
+    "peso_salida_zona": 20,
+    "spoofing_salto_m": 2000,
+    "spoofing_kmh": 200,
+}
+DETECCION_RANGO = {
+    "umbral_sabotaje": (20, 100),
+    "peso_desvio": (0, 60),
+    "peso_spoofing": (0, 60),
+    "peso_jamming": (0, 60),
+    "peso_parada_riesgo": (0, 60),
+    "peso_salida_zona": (0, 60),
+    "spoofing_salto_m": (500, 20000),
+    "spoofing_kmh": (120, 500),
+}
+SENSIBILIDADES = ("baja", "media", "alta", "personalizada")
+# Cada nivel ajusta a la vez los umbrales del motor y los parámetros de sabotaje.
+# "alta" detecta antes (más alertas, más falsas alarmas); "baja" espera más evidencia.
+PRESETS = {
+    "alta": {
+        "umbrales": {"desvio_m": 150, "desvio_alto_m": 700, "sin_senal_s": 180, "parada_riesgo_min": 1},
+        "deteccion": {"umbral_sabotaje": 45, "spoofing_salto_m": 1000, "spoofing_kmh": 160},
+    },
+    "media": {
+        "umbrales": {"desvio_m": 250, "desvio_alto_m": 1000, "sin_senal_s": 300, "parada_riesgo_min": 2},
+        "deteccion": {"umbral_sabotaje": 60, "spoofing_salto_m": 2000, "spoofing_kmh": 200},
+    },
+    "baja": {
+        "umbrales": {"desvio_m": 400, "desvio_alto_m": 1500, "sin_senal_s": 600, "parada_riesgo_min": 5},
+        "deteccion": {"umbral_sabotaje": 75, "spoofing_salto_m": 3000, "spoofing_kmh": 250},
+    },
+}
+
+
+def get_deteccion(db: Session) -> dict:
+    data = deepcopy(DETECCION_DEFAULT)
+    data.update({k: v for k, v in (_get(db, "deteccion") or {}).items() if k in DETECCION_DEFAULT})
+    return data
+
+
+def set_deteccion(db: Session, cambios: dict, usuario: str | None) -> dict:
+    data = get_deteccion(db)
+    for k, v in cambios.items():
+        if k not in DETECCION_RANGO or v is None:
+            continue
+        lo, hi = DETECCION_RANGO[k]
+        try:
+            num = float(v)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Valor inválido para {k}") from exc
+        if not lo <= num <= hi:
+            raise ValueError(f"{k} debe estar entre {lo} y {hi}")
+        data[k] = int(round(num))
+    pesos = sum(data[k] for k in data if k.startswith("peso_"))
+    if pesos * 2 < data["umbral_sabotaje"]:
+        raise ValueError("Con esos pesos el puntaje nunca llegaría al umbral de sabotaje. Sube algún peso o baja el umbral.")
+    data["sensibilidad"] = cambios.get("sensibilidad") if cambios.get("sensibilidad") in SENSIBILIDADES else "personalizada"
+    _set(db, "deteccion", data, usuario)
+    return data
+
+
+def aplicar_sensibilidad(db: Session, nivel: str, usuario: str | None) -> tuple[dict, dict]:
+    if nivel not in PRESETS:
+        raise ValueError("Nivel de sensibilidad inválido")
+    p = PRESETS[nivel]
+    umbrales = set_umbrales(db, p["umbrales"], usuario)
+    deteccion = set_deteccion(db, {**DETECCION_DEFAULT, **p["deteccion"], "sensibilidad": nivel}, usuario)
+    return umbrales, deteccion
+
+
+def pesos_sabotaje(db: Session) -> dict:
+    d = get_deteccion(db)
+    return {
+        "desvio": d["peso_desvio"],
+        "spoofing": d["peso_spoofing"],
+        "jamming": d["peso_jamming"],
+        "parada_riesgo": d["peso_parada_riesgo"],
+        "salida_zona": d["peso_salida_zona"],
+    }
+
+
+# ─────────────── registro de cuentas ───────────────
+
+def get_registro(db: Session) -> dict:
+    data = _get(db, "registro")
+    if not data or not data.get("codigo"):
+        from app.accounts import nuevo_codigo_empresa
+
+        data = {"codigo": nuevo_codigo_empresa(), "activo": True}
+        _set(db, "registro", data, None)
+    return {"codigo": data["codigo"], "activo": bool(data.get("activo", True))}
+
+
+def set_registro(db: Session, cambios: dict, usuario: str | None) -> dict:
+    data = get_registro(db)
+    if cambios.get("regenerar"):
+        from app.accounts import nuevo_codigo_empresa
+
+        data["codigo"] = nuevo_codigo_empresa()
+    if "activo" in cambios:
+        data["activo"] = bool(cambios["activo"])
+    _set(db, "registro", data, usuario)
+    return data

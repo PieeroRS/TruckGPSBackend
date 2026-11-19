@@ -27,6 +27,11 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="conductor")
     telefono: Mapped[str | None] = mapped_column(String(30))
     licencia: Mapped[str | None] = mapped_column(String(30))
+    # Cuentas creadas desde "Crear cuenta": deben verificar el correo y pasar por el asistente inicial.
+    email_verificado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    onboarding_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Preferencias de seguridad y de notificaciones (asistente de configuración y Mi perfil).
+    preferencias: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     vehicles: Mapped[list[Vehicle]] = relationship(back_populates="driver")

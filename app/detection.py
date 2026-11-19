@@ -251,11 +251,14 @@ def check_spoofing(
     dist = haversine_m(prev.lat, prev.lng, lat, lng)
     # Un salto explicable por la imprecisión de los dos puntos no es spoofing
     # (p. ej. pasar de ubicación aproximada por IP a GPS).
+    from app.app_settings import get_deteccion
+
+    params = get_deteccion(db)
     incertidumbre = (prev.precision_m or 0) + (precision_m or 0)
-    if incertidumbre > COARSE_ZONES_M or dist - incertidumbre < SPOOF_MIN_JUMP_M:
+    if incertidumbre > COARSE_ZONES_M or dist - incertidumbre < params["spoofing_salto_m"]:
         return False
     kmh = dist / dt * 3.6
-    if kmh < SPOOF_MAX_KMH:
+    if kmh < params["spoofing_kmh"]:
         return False
     desc = (
         f"La posición de {vehicle.placa} saltó {dist / 1000:.1f} km en {dt:.0f} s "
@@ -403,7 +406,14 @@ def check_stop_in_risk_zone(db: Session, vehicle: Vehicle, speed: float, lat: fl
 
 
 def evaluate_sabotage(db: Session, vehicle: Vehicle) -> AiAlert | None:
-    """Suma ponderada de eventos de las últimas 24 h. Desde 60 puntos alerta posible sabotaje."""
+    """Suma ponderada de eventos de las últimas 24 h. Desde el umbral (60 por defecto) alerta posible sabotaje.
+
+    Los pesos y el umbral se ajustan en Configuración → Parámetros de detección.
+    """
+    from app.app_settings import get_deteccion, pesos_sabotaje
+
+    pesos = pesos_sabotaje(db)
+    umbral = get_deteccion(db)["umbral_sabotaje"]
     since = utcnow() - timedelta(hours=24)
     rows = db.execute(
         select(VehicleEvent.tipo, func.count())
@@ -413,11 +423,13 @@ def evaluate_sabotage(db: Session, vehicle: Vehicle) -> AiAlert | None:
     factores = []
     score = 0
     for tipo, n in rows:
-        pts = SABOTAGE_WEIGHTS[tipo] * min(n, 2)
+        pts = pesos.get(tipo, 0) * min(n, 2)
+        if pts == 0:
+            continue
         score += pts
         factores.append({"tipo": tipo, "label": EVENT_LABELS[tipo], "cantidad": n, "puntos": pts})
     score = min(100, score)
-    if score < SABOTAGE_THRESHOLD:
+    if score < umbral:
         return None
     factores.sort(key=lambda f: -f["puntos"])
     detalle = ", ".join(f"{f['cantidad']} {f['label']}" for f in factores)
@@ -435,7 +447,7 @@ def evaluate_sabotage(db: Session, vehicle: Vehicle) -> AiAlert | None:
         desc,
         last.lat if last else vehicle.lat,
         last.lng if last else vehicle.lng,
-        {"puntaje": score, "umbral": SABOTAGE_THRESHOLD, "factores": factores},
+        {"puntaje": score, "umbral": umbral, "factores": factores},
         icon="siren",
     )
 

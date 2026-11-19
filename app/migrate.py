@@ -18,6 +18,9 @@ NEW_COLUMNS: dict[str, dict[str, str]] = {
     "users": {
         "telefono": "VARCHAR(30)",
         "licencia": "VARCHAR(30)",
+        "email_verificado": "BOOLEAN DEFAULT TRUE NOT NULL",
+        "onboarding_ok": "BOOLEAN DEFAULT TRUE NOT NULL",
+        "preferencias": "JSON",
     },
     "vehicles": {
         "rendimiento_km_gal": "FLOAT",

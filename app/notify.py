@@ -156,7 +156,14 @@ def send_alert(db: Session, alert: Alert) -> list[NotificationLog]:
     logs: list[NotificationLog] = []
 
     emails = split_list(settings.alert_emails)
-    if email_configured():
+    try:
+        from app.accounts import correos_con_aviso
+
+        # Supervisores que activaron "recibir alertas por correo" en sus preferencias.
+        emails += [e for e in correos_con_aviso(db) if e.lower() not in {x.lower() for x in emails}]
+    except Exception:  # noqa: BLE001
+        pass
+    if settings.resend_api_key and emails:
         try:
             _send_email(alert, emails)
             logs.append(_log(db, alert, "email", emails, "enviado", None))
