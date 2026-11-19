@@ -371,6 +371,12 @@ def _steps_from(route: dict, geometry: list[list[float]]) -> list[dict]:
         texto = (i.get("message") or "").strip()
         if not texto:
             continue
+        # La flecha sigue al texto: «Manténgase a la derecha» siempre apunta a la derecha.
+        bajo = texto.lower()
+        if "derecha" in bajo and "left" in mod and "izquierda" not in bajo:
+            mod = mod.replace("left", "right")
+        elif "izquierda" in bajo and "right" in mod and "derecha" not in bajo:
+            mod = mod.replace("right", "left")
         pt = i.get("point") or {}
         steps.append(
             {
