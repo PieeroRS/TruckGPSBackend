@@ -162,7 +162,8 @@ def _flow_params(i: int, z: int) -> tuple[str, dict]:
     style, extra = FLOW_VARIANTS[i]
     params = dict(extra)
     if extra:
-        params["thickness"] = 8 if z >= 13 else 5
+        # Líneas finas cuando se ve la ciudad entera; más gruesas al acercarse a la calle.
+        params["thickness"] = 2 if z <= 12 else 3 if z <= 14 else 5
     return style, params
 
 
@@ -187,6 +188,40 @@ def flow_tile(z: int, x: int, y: int) -> bytes:
         raise TomTomError("TomTom no devolvió una imagen de tráfico")
     _tiles.put(key, data, TILE_TTL_S)
     _last_error["msg"] = None
+    return data
+
+
+# ─────────────── mapa base (navegación) ───────────────
+
+BASE_STYLES = ("main", "night")
+BASE_DAILY_CAP = 6000
+_base = _TTLCache(2500)
+_base_day = {"dia": "", "n": 0}
+
+
+def base_tile(style: str, z: int, x: int, y: int) -> bytes:
+    """Cuadro del mapa base de TomTom (de día «main» o de noche «night») con nombres en español."""
+    if style not in BASE_STYLES:
+        raise TomTomError("Estilo de mapa no válido", 400)
+    key = f"{style}/{z}/{x}/{y}"
+    hit = _base.get(key)
+    if hit is not None:
+        return hit  # type: ignore[return-value]
+    dia = _today()
+    if _base_day["dia"] != dia:
+        _base_day.update(dia=dia, n=0)
+    if int(_base_day["n"]) >= BASE_DAILY_CAP:
+        raise TomTomError("Se usó el cupo diario del mapa", 429)
+    _base_day["n"] = int(_base_day["n"]) + 1
+    try:
+        data, ctype = _fetch(f"/map/1/tile/basic/{style}/{z}/{x}/{y}.png", {"tileSize": 256, "language": "es-ES"})
+    except TomTomError:
+        if _last_error["msg"] != "TomTom no aceptó la consulta":
+            raise
+        data, ctype = _fetch(f"/map/1/tile/basic/{style}/{z}/{x}/{y}.png", {})
+    if "image" not in ctype:
+        raise TomTomError("TomTom no devolvió una imagen del mapa")
+    _base.put(key, data, 6 * 3600)
     return data
 
 
@@ -398,6 +433,26 @@ def _steps_from(route: dict, geometry: list[list[float]]) -> list[dict]:
     return steps
 
 
+def _traffic_sections(route: dict) -> list[dict]:
+    """Tramos de la ruta con tráfico: índices del trazado y nivel (lento, pesado, detenido)."""
+    out = []
+    for sec in route.get("sections") or []:
+        if sec.get("sectionType") != "TRAFFIC":
+            continue
+        mag = int(sec.get("magnitudeOfDelay") or 0)
+        cat = sec.get("simpleCategory") or ""
+        nivel = "detenido" if mag >= 3 or cat == "ROAD_CLOSURE" else "pesado" if mag == 2 else "lento"
+        out.append(
+            {
+                "desde": int(sec.get("startPointIndex") or 0),
+                "hasta": int(sec.get("endPointIndex") or 0),
+                "nivel": nivel,
+                "demora_s": int(sec.get("delayInSeconds") or 0),
+            }
+        )
+    return out
+
+
 def routes(
     points: list[tuple[float, float]],
     alternatives: int = 0,
@@ -440,7 +495,7 @@ def routes(
         "routeRepresentation": "polyline",
     }
     if guidance:
-        params.update(instructionsType="text", language="es-ES")
+        params.update(instructionsType="text", language="es-ES", sectionType="traffic")
     locs = ":".join(f"{p[0]:.6f},{p[1]:.6f}" for p in points)
     path = f"/routing/1/calculateRoute/{locs}/json"
     if avoid:
@@ -471,6 +526,7 @@ def routes(
         }
         if guidance:
             item["steps"] = _steps_from(r, geometry)
+            item["tramos_trafico"] = _traffic_sections(r)
         out.append(item)
     if not out:
         raise TomTomError("TomTom no encontró ruta", 404)
@@ -534,6 +590,7 @@ def reassess(path: list[list[float]], avoid: list[tuple[float, float, float]] | 
         "minDeviationTime": 0,
         "instructionsType": "text",
         "language": "es-ES",
+        "sectionType": "traffic",
     }
     payload: dict = {"supportingPoints": [{"latitude": p[0], "longitude": p[1]} for p in puntos]}
     if avoid:
@@ -560,6 +617,7 @@ def reassess(path: list[list[float]], avoid: list[tuple[float, float, float]] | 
             "delay_min": round((s.get("trafficDelayInSeconds") or 0) / 60, 1),
             "geometry": geometry,
             "steps": _steps_from(r, geometry),
+            "tramos_trafico": _traffic_sections(r),
             "fuente": "tomtom",
         }
         break

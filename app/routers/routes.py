@@ -146,6 +146,7 @@ def guide(body: GuideIn, user: User = Depends(get_current_user), db: Session = D
     return {
         "enVivo": bool(est.get("en_vivo")),
         "demoraTraficoMin": res.get("delay_min"),
+        "tramosTrafico": res.get("tramos_trafico", []),
         "geometry": res["geometry"],
         "steps": res.get("steps", []),
         "distanceKm": res["distance_km"],
@@ -344,6 +345,7 @@ def traffic_check(body: TrafficCheckIn, user: User = Depends(get_current_user), 
         "guia": {
             "enVivo": True,
             "demoraTraficoMin": mejor["delay_min"],
+            "tramosTrafico": mejor.get("tramos_trafico", []),
             "geometry": mejor["geometry"],
             "steps": mejor["steps"],
             "distanceKm": mejor["distance_km"],
