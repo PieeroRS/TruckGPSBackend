@@ -149,15 +149,39 @@ def signature_ok(sig: str) -> bool:
     return any(hmac.compare_digest(sig or "", _sig_for(k)) for k in (w, w - 1))
 
 
+# Formatos de pedido, del preferido al más simple. Se usa el primero que TomTom acepte.
+FLOW_VARIANTS: list[tuple[str, dict]] = [
+    ("relative0", {"tileSize": 256}),
+    ("relative", {"tileSize": 256}),
+    ("relative", {}),
+]
+_variant = {"i": 0}
+
+
+def _flow_params(i: int, z: int) -> tuple[str, dict]:
+    style, extra = FLOW_VARIANTS[i]
+    params = dict(extra)
+    if extra:
+        params["thickness"] = 8 if z >= 13 else 5
+    return style, params
+
+
 def flow_tile(z: int, x: int, y: int) -> bytes:
     key = f"{z}/{x}/{y}"
     hit = _tiles.get(key)
     if hit is not None:
         return hit  # type: ignore[return-value]
-    data, ctype = _fetch(
-        f"/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png",
-        {"tileSize": 256, "thickness": 8 if z >= 13 else 5},
-    )
+    while True:
+        style, params = _flow_params(_variant["i"], z)
+        try:
+            data, ctype = _fetch(f"/traffic/map/4/tile/flow/{style}/{z}/{x}/{y}.png", params)
+            break
+        except TomTomError:
+            # «No aceptó la consulta» (400): se prueba el siguiente formato. Otros errores se informan.
+            if _last_error["msg"] == "TomTom no aceptó la consulta" and _variant["i"] + 1 < len(FLOW_VARIANTS):
+                _variant["i"] += 1
+                continue
+            raise
     if "image" not in ctype:
         _remember_error("TomTom no devolvió una imagen de tráfico")
         raise TomTomError("TomTom no devolvió una imagen de tráfico")
@@ -259,9 +283,9 @@ def status() -> dict:
         return cached  # type: ignore[return-value]
     try:
         flow_tile(12, 1171, 2186)  # un cuadro del centro de Lima
-        val = {"configurado": True, "funciona": True, "detalle": None}
+        val = {"configurado": True, "funciona": True, "detalle": None, "estilo": FLOW_VARIANTS[_variant["i"]][0]}
     except TomTomError as e:
-        val = {"configurado": True, "funciona": False, "detalle": str(e)}
+        val = {"configurado": True, "funciona": False, "detalle": str(e), "intento": _variant["i"] + 1}
     val["busquedasRestantesHoy"] = search_left_today()
     _status_cache.update(at=time.time(), val=val)
     return val
