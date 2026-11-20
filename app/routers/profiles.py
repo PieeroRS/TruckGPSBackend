@@ -72,3 +72,21 @@ def verify_profile(user_id: str, _actor: User = Depends(require_staff), db: Sess
     user.email_verificado = True
     db.flush()
     return profile_out(user, include_created=True)
+
+
+@router.delete("/{user_id}")
+def delete_profile(user_id: str, actor: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """Quita una cuenta (p. ej. una creada desde «Crear cuenta» que nadie reconoce).
+
+    Sus registros (incidencias, rutas, vales) se conservan sin autor.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    if user.id == actor.id:
+        raise HTTPException(status_code=400, detail="No puedes quitar tu propia cuenta")
+    if actor.role != "admin" and user.role != "conductor":
+        raise HTTPException(status_code=403, detail="Solo el administrador puede quitar supervisores o administradores")
+    db.delete(user)
+    db.commit()
+    return {"ok": True, "email": user.email}

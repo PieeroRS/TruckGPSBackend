@@ -73,7 +73,6 @@ def registro(body: dict, db: Session = Depends(get_db)):
     nombre = str(body.get("full_name", "")).strip()
     email = str(body.get("email", "")).strip().lower()
     password = str(body.get("password", ""))
-    codigo = str(body.get("codigo_empresa", "")).strip().upper()
     if len(nombre) < 3:
         raise HTTPException(status_code=400, detail="Escribe tu nombre y apellido")
     if not accounts.EMAIL_RE.match(email):
@@ -87,8 +86,6 @@ def registro(body: dict, db: Session = Depends(get_db)):
     reg = cfg.get_registro(db)
     if not reg["activo"]:
         raise HTTPException(status_code=403, detail="El registro de cuentas está desactivado. Pide a tu supervisor que te cree la cuenta.")
-    if codigo != reg["codigo"]:
-        raise HTTPException(status_code=400, detail="El código de empresa no es correcto. Pídelo a tu supervisor.")
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status_code=400, detail="Ya existe una cuenta con ese correo. Inicia sesión o recupera tu contraseña.")
     user = User(
