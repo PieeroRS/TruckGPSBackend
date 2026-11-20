@@ -5,7 +5,7 @@ Cada informe se puede pedir en JSON (para la pantalla), en PDF o en Excel.
 from __future__ import annotations
 
 import io
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -50,7 +50,10 @@ def _dia(fecha: str | None) -> date:
 
 
 def _ventana(d0: date, d1: date) -> tuple[datetime, datetime]:
-    return datetime.combine(d0, time.min, LIMA), datetime.combine(d1 + timedelta(days=1), time.min, LIMA)
+    """Días completos en hora de Lima, expresados en UTC (así comparan bien Postgres y SQLite)."""
+    ini = datetime.combine(d0, time.min, LIMA).astimezone(timezone.utc)
+    fin = datetime.combine(d1 + timedelta(days=1), time.min, LIMA).astimezone(timezone.utc)
+    return ini, fin
 
 
 def _placas(db: Session) -> dict[str, str]:
@@ -255,7 +258,16 @@ def _xlsx(titulo: str, info: list[tuple[str, str]], hojas: list[tuple[str, list[
         for i, col in enumerate(cols, start=1):
             largo = max([len(str(col))] + [len(str(r[i - 1])) for r in rows if i - 1 < len(r) and r[i - 1] is not None])
             ws.column_dimensions[ws.cell(row=hdr, column=i).column_letter].width = min(60, max(10, largo + 2))
+        # El resumen de arriba (columnas A-B) no debe ensanchar la tabla, pero sí leerse completo.
+        ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 10, max(len(k) for k, _ in info) + 2 if info else 10)
         ws.freeze_panes = ws.cell(row=hdr + 1, column=1)
+        # Al imprimir o exportar a PDF: horizontal y todas las columnas en una hoja de ancho.
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.print_title_rows = f"{hdr}:{hdr}"
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
