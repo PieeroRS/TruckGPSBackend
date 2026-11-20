@@ -45,6 +45,9 @@ def _startup() -> None:
         from app.history import seed_route_history
 
         seed_route_history(db)
+        from app.demo_rutas import seed_rutas_ejemplo
+
+        seed_rutas_ejemplo(db)
         from app.simulation import ensure_simulation
 
         ensure_simulation(db)
