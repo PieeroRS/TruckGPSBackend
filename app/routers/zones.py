@@ -239,7 +239,7 @@ def notifications_status(_user: User = Depends(require_staff)):
         "email": {
             "configurado": email_configured(),
             "destinatarios": [_mask_email(e) for e in split_list(settings.alert_emails)],
-            "faltan": [k for k, v in (("RESEND_API_KEY", settings.resend_api_key), ("ALERT_EMAILS", settings.alert_emails)) if not v],
+            "faltan": [k for k, v in (("SMTP_USER/SMTP_PASSWORD o RESEND_API_KEY", (settings.smtp_user and settings.smtp_password) or settings.resend_api_key), ("ALERT_EMAILS", settings.alert_emails)) if not v],
         },
         "sms": {
             "configurado": sms_configured(),

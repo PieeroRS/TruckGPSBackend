@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     alert_phones: str = ""  # celulares con código de país, separados por coma (+51...)
     alerts_from_email: str = "TruckGPS <onboarding@resend.dev>"
     resend_api_key: str = ""
+    # Alternativa sin dominio propio: enviar con una cuenta de Gmail y su "contraseña de aplicación".
+    # Si SMTP_USER y SMTP_PASSWORD están configurados, se usan en lugar de Resend.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_from: str = ""  # número de Twilio que envía el SMS

@@ -154,18 +154,14 @@ def _html(titulo: str, parrafos: list[str], boton: str, url: str, pie: str) -> s
 
 def _enviar(db: Session, to: str, asunto: str, html_body: str, texto: str, tipo: str) -> tuple[bool, str | None]:
     """Envía un correo a una persona (no a la lista de supervisores). Devuelve (enviado, error)."""
-    from app.notify import _post  # mismo cliente HTTP que los avisos
+    from app.notify import correo_configurado, enviar_correo
 
-    if not settings.resend_api_key:
-        error = "El envío de correos no está configurado (falta RESEND_API_KEY)."
+    if not correo_configurado():
+        error = "El envío de correos no está configurado (faltan SMTP_USER/SMTP_PASSWORD o RESEND_API_KEY)."
         estado = "sin_configurar"
     else:
         try:
-            _post(
-                "https://api.resend.com/emails",
-                json.dumps({"from": settings.alerts_from_email, "to": [to], "subject": asunto, "html": html_body, "text": texto}).encode(),
-                {"Authorization": f"Bearer {settings.resend_api_key}", "Content-Type": "application/json"},
-            )
+            enviar_correo([to], asunto, html_body, texto)
             error, estado = None, "enviado"
         except Exception as exc:  # noqa: BLE001 - el registro no debe romperse por el correo
             error, estado = str(exc)[:500], "fallido"

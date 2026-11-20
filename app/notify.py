@@ -83,8 +83,51 @@ def split_list(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def smtp_configured() -> bool:
+    return bool(settings.smtp_user and settings.smtp_password)
+
+
+def correo_configurado() -> bool:
+    """Hay forma de enviar correos: Gmail (SMTP) o Resend."""
+    return smtp_configured() or bool(settings.resend_api_key)
+
+
 def email_configured() -> bool:
-    return bool(settings.resend_api_key and split_list(settings.alert_emails))
+    return bool(correo_configurado() and split_list(settings.alert_emails))
+
+
+def enviar_correo(to: list[str], asunto: str, html_body: str, texto: str) -> None:
+    """Envía un correo por SMTP (si está configurado) o por Resend. Lanza excepción si falla."""
+    if smtp_configured():
+        import smtplib
+        import ssl
+        from email.message import EmailMessage
+        from email.utils import formataddr
+
+        msg = EmailMessage()
+        msg["From"] = formataddr(("TruckGPS", settings.smtp_user))
+        msg["To"] = ", ".join(to)
+        msg["Subject"] = asunto
+        msg.set_content(texto)
+        msg.add_alternative(html_body, subtype="html")
+        ctx = ssl.create_default_context()
+        if settings.smtp_port == 465:
+            with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, context=ctx, timeout=TIMEOUT_S) as srv:
+                srv.login(settings.smtp_user, settings.smtp_password)
+                srv.send_message(msg)
+        else:
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=TIMEOUT_S) as srv:
+                srv.starttls(context=ctx)
+                srv.login(settings.smtp_user, settings.smtp_password)
+                srv.send_message(msg)
+        return
+    if not settings.resend_api_key:
+        raise RuntimeError("El envío de correos no está configurado (faltan SMTP_USER/SMTP_PASSWORD o RESEND_API_KEY).")
+    _post(
+        "https://api.resend.com/emails",
+        json.dumps({"from": settings.alerts_from_email, "to": to, "subject": asunto, "html": html_body, "text": texto}).encode("utf-8"),
+        {"Authorization": f"Bearer {settings.resend_api_key}", "Content-Type": "application/json"},
+    )
 
 
 def sms_configured() -> bool:
@@ -107,20 +150,7 @@ def _post(url: str, data: bytes, headers: dict[str, str]) -> None:
 
 
 def _send_email(alert: Alert, to: list[str]) -> None:
-    body = json.dumps(
-        {
-            "from": settings.alerts_from_email,
-            "to": to,
-            "subject": f"[TruckGPS] {alert.titulo}",
-            "html": alert.html(),
-            "text": alert.text(),
-        }
-    ).encode("utf-8")
-    _post(
-        "https://api.resend.com/emails",
-        body,
-        {"Authorization": f"Bearer {settings.resend_api_key}", "Content-Type": "application/json"},
-    )
+    enviar_correo(to, f"[TruckGPS] {alert.titulo}", alert.html(), alert.text())
 
 
 def _send_sms(alert: Alert, phone: str) -> None:
@@ -163,14 +193,14 @@ def send_alert(db: Session, alert: Alert) -> list[NotificationLog]:
         emails += [e for e in correos_con_aviso(db) if e.lower() not in {x.lower() for x in emails}]
     except Exception:  # noqa: BLE001
         pass
-    if settings.resend_api_key and emails:
+    if correo_configurado() and emails:
         try:
             _send_email(alert, emails)
             logs.append(_log(db, alert, "email", emails, "enviado", None))
         except Exception as exc:  # noqa: BLE001 - el aviso no debe romper la operación principal
             logs.append(_log(db, alert, "email", emails, "fallido", str(exc)[:500]))
     else:
-        logs.append(_log(db, alert, "email", emails, "sin_configurar", "Falta RESEND_API_KEY o ALERT_EMAILS"))
+        logs.append(_log(db, alert, "email", emails, "sin_configurar", "Falta configurar el correo (SMTP o RESEND_API_KEY) o ALERT_EMAILS"))
 
     if sms_configured():
         for phone in split_list(settings.alert_phones):
